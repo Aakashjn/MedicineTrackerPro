@@ -1,0 +1,44 @@
+# .github/workflows/main.yml
+name: Medicine Tracker CI/CD
+
+on:
+  push:
+    branches:
+      - main # Trigger on pushes to the main branch
+  pull_request:
+    branches:
+      - main # Trigger on pull requests to the main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest # Use a Windows runner provided by GitHub Actions
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Or the version you specified in package.json (e.g., 14, 16, 18)
+
+      # --- Add steps for Code Analysis, Dependency Scan, Container Build, Image Scan, Deployment below ---
+      # For example:
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm install
+
+      - name: Install frontend dependencies (if separate npm install needed)
+        run: |
+          cd frontend # Adjust if your frontend also has a package.json
+          # npm install # Uncomment if your frontend uses npm for dependencies (unlikely for pure HTML/CSS/JS)
+
+      # Placeholder for running tests (Jest)
+      - name: Run backend tests
+        run: |
+          cd backend
+          npm test
+        continue-on-error: true # Allow pipeline to continue even if tests fail, for demonstration
+
+      # This is where you'll integrate the rest of your tools.
