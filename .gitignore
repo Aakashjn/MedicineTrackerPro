@@ -1,0 +1,16 @@
+# Node.js dependencies
+node_modules/
+
+# Environment variables (contains secrets)
+.env
+
+# SQLite database file
+*.db
+*.db-journal
+
+# VSCode files (optional, but good practice)
+.vscode/
+
+# npm debug logs
+npm-debug.log*
+yarn-debug.log*
