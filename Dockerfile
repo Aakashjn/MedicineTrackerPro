@@ -1,29 +1,20 @@
-# Multi-stage build for frontend and backend
+# Backend build stage
 FROM node:18-alpine as backend
 
-# Backend setup
 WORKDIR /app/backend
 COPY backend/package*.json ./
 RUN npm install
 COPY backend/ ./
 
-# If you have a frontend, uncomment and modify this section:
-# FROM node:18-alpine as frontend
-# WORKDIR /app/frontend  
-# COPY frontend/package*.json ./
-# RUN npm install
-# COPY frontend/ ./
-# RUN npm run build
-
 # Final stage
 FROM node:18-alpine
 WORKDIR /app
 
-# Copy backend
+# Copy backend code from build stage
 COPY --from=backend /app/backend ./
 
-# If you have frontend build, uncomment:
-# COPY --from=frontend /app/frontend/build ./public
+# Copy frontend static files into /app/public
+COPY frontend/ ./public/
 
 EXPOSE 4000
 CMD ["node", "server.js"]
