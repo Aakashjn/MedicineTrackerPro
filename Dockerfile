@@ -25,5 +25,5 @@ COPY --from=backend /app/backend ./
 # If you have frontend build, uncomment:
 # COPY --from=frontend /app/frontend/build ./public
 
-EXPOSE 3000
+EXPOSE 4000
 CMD ["node", "server.js"]
