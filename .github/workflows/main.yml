@@ -5,13 +5,34 @@ on:
   push:
     branches:
       - main # Trigger on pushes to the main branch
+      - feature/ci-cd-tests # Add your feature branch here to test the pipeline
   pull_request:
     branches:
       - main # Trigger on pull requests to the main branch
+      - feature/ci-cd-tests # Add your feature branch here to test the pipeline
+
+# --- Start of the 'env:' section (Insert this entire block) ---
+env:
+  NODE_VERSION: '20' # Specify your Node.js version
+  # Docker Hub credentials (if pushing to Docker Hub)
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+  # SonarCloud/SonarQube
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  # Snyk
+  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  # Jenkins for Deployment Trigger
+  JENKINS_USER: ${{ secrets.JENKINS_USER }}
+  JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+  JENKINS_JOB_AUTH_TOKEN: ${{ secrets.JENKINS_JOB_AUTH_TOKEN }}
+# --- End of the 'env:' section ---
 
 jobs:
   build-and-deploy:
     runs-on: windows-latest # Use a Windows runner provided by GitHub Actions
+    defaults:
+      run:
+        working-directory: backend # All commands will run in the backend directory by default
 
     steps:
       - name: Checkout code
@@ -20,25 +41,131 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' # Or the version you specified in package.json (e.g., 14, 16, 18)
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json # Path to lock file for caching
 
-      # --- Add steps for Code Analysis, Dependency Scan, Container Build, Image Scan, Deployment below ---
-      # For example:
       - name: Install backend dependencies
-        run: |
-          cd backend
-          npm install
+        run: npm install
 
-      - name: Install frontend dependencies (if separate npm install needed)
-        run: |
-          cd frontend # Adjust if your frontend also has a package.json
-          # npm install # Uncomment if your frontend uses npm for dependencies (unlikely for pure HTML/CSS/JS)
-
-      # Placeholder for running tests (Jest)
       - name: Run backend tests
-        run: |
-          cd backend
-          npm test
-        continue-on-error: true # Allow pipeline to continue even if tests fail, for demonstration
+        run: npm test
+        # REMOVE 'continue-on-error: true' WHEN YOU ARE CONFIDENT IN YOUR TESTS AND WANT THEM TO BE A HARD GATE.
+        # For now, it's okay to keep it for initial testing of the full pipeline.
 
-      # This is where you'll integrate the rest of your tools.
+      # --- START OF THE NEW STEPS BLOCK YOU PROVIDED ---
+      # REPLACE EVERYTHING FROM HERE DOWN TO THE END OF THE FILE
+      # (This includes removing your old comments and the `continue-on-error` line as part of the replacement)
+
+      # --- Code Analysis ---
+      # SonarQube (assuming SonarCloud integration for simplicity via marketplace action)
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v2.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by GitHub Actions
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} # Your SonarCloud token
+        with:
+          # Assuming you have a sonar-project.properties file in your backend directory
+          # or configured via environment variables.
+          # Example properties if needed (adjust to your project key, organization)
+          # args: >
+          #   -Dsonar.projectKey=YourOrg_MedicineTrackerProBackend
+          #   -Dsonar.organization=your-sonarcloud-org
+          #   -Dsonar.sources=./
+          #   -Dsonar.tests=__tests__/
+          #   -Dsonar.test.inclusions=**/*.test.js
+
+      # --- Dependency Scan ---
+      # OWASP Dependency-Check
+      # Requires Java Runtime Environment
+      - name: Setup Java for OWASP Dependency-Check
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17' # OWASP DC often requires Java
+
+      - name: Run OWASP Dependency-Check
+        uses: jeremylong/dependency-check-action@v12
+        id: depcheck # Give it an ID to reference outputs
+        with:
+          project: 'medicine-tracker-backend'
+          path: './' # Scan the current directory (backend)
+          format: 'HTML,SARIF' # Output formats
+          # Exclusions: '--exclude node_modules' # Exclude node_modules if not needed
+
+      # Snyk
+      - name: Run Snyk Scan (Code & Dependencies)
+        uses: snyk/actions/nodejs-go@master # Action for Node.js projects
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test # Or 'monitor' to continuously monitor
+          args: --file=package.json # Scan package.json for dependencies
+          # Snyk also supports code analysis (SAST) with `snyk code test` command
+          # args: --file=package.json && snyk code test
+
+      # --- Container Build ---
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build Docker Image
+        # The working-directory is already 'backend', so Dockerfile and context are correct
+        run: docker build -t aakashjn/medicinewebapi:${{ github.sha }} -f Dockerfile .
+
+      - name: Push Docker Image to Docker Hub
+        run: docker push aakashjn/medicinewebapi:${{ github.sha }}
+
+      # --- Image Scan ---
+      # Trivy
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'aakashjn/medicinewebapi:${{ github.sha }}'
+          format: 'table'
+          output: 'trivy-results.txt'
+          severity: 'HIGH,CRITICAL'
+          # If you want to fail the pipeline on vulnerabilities:
+          # exit-code: '1'
+
+      # Grype
+      - name: Install Grype
+        run: |
+          # Download Grype executable for Windows
+          curl -LO https://github.com/anchore/grype/releases/download/v0.79.0/grype_0.79.0_windows_amd64.zip
+          unzip grype_0.79.0_windows_amd64.zip
+          mv grype.exe ${{ github.workspace }}/grype.exe # Move to root for easier pathing
+        shell: bash # Use bash shell for curl/unzip (Git Bash is often available on Windows runners)
+
+      - name: Run Grype Image Scan
+        run: |
+          ${{ github.workspace }}/grype.exe aakashjn/medicinewebapi:${{ github.sha }} --scope all-layers --severity medium,high,critical
+          # You can add --fail-on-severity HIGH,CRITICAL for failing the workflow
+        shell: bash # Use bash shell for consistency
+
+      # --- Orchestration Hand-off to Jenkins (Deployment) ---
+      # This step triggers your Jenkins job
+      - name: Trigger Jenkins Deployment
+        if: github.ref == 'refs/heads/main' # Only trigger Jenkins for main branch deployments
+        env:
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }} # API token from Jenkins user settings
+          JENKINS_JOB_AUTH_TOKEN: ${{ secrets.JENKINS_JOB_AUTH_TOKEN }} # Token configured in Jenkins job
+        run: |
+          JENKINS_URL="http://your-jenkins-instance.com/job/MedicineTrackerPro_Deployment/buildWithParameters" # <<< IMPORTANT: REPLACE WITH YOUR ACTUAL JENKINS URL
+          IMAGE_TAG="aakashjn/medicinewebapi:${{ github.sha }}" # The Docker image to deploy
+
+          # Construct parameters for Jenkins (e.g., image tag)
+          # Ensure your Jenkins job is configured to accept 'IMAGE_TAG' as a parameter
+          curl -X POST -u "${{ env.JENKINS_USER }}:${{ env.JENKINS_API_TOKEN }}" \
+               "${JENKINS_URL}?token=${{ env.JENKINS_JOB_AUTH_TOKEN }}" \
+               --data-urlencode "json={
+                 \"parameter\": [
+                   {\"name\":\"IMAGE_TAG\", \"value\":\"$IMAGE_TAG\"}
+                 ]
+               }"
+        shell: bash # Using bash for curl syntax
+
+      # --- END OF THE NEW STEPS BLOCK ---
