@@ -6,413 +6,661 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+// Database setup
+const dbPath = path.join(__dirname, 'medicine_tracker.db');
+const db = new sqlite3.Database(dbPath);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public')); // Serve frontend files
+app.use(express.static('public'));
 
-// Initialize SQLite Database
-const db = new sqlite3.Database('./medicine_tracker.db');
+// Database initialization
+const initializeDatabase = () => {
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS medicines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      dosage TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      start_date DATE NOT NULL,
+      end_date DATE,
+      notes TEXT,
+      active BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      medicine_id INTEGER NOT NULL,
+      scheduled_time TIME NOT NULL,
+      taken BOOLEAN DEFAULT FALSE,
+      taken_at DATETIME,
+      scheduled_date DATE DEFAULT (DATE('now')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (medicine_id) REFERENCES medicines (id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS medicine_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      medicine_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      taken_at DATETIME NOT NULL,
+      status TEXT DEFAULT 'taken',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (medicine_id) REFERENCES medicines (id),
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      medicine_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      reminder_time TIME NOT NULL,
+      enabled BOOLEAN DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (medicine_id) REFERENCES medicines (id),
+      FOREIGN KEY (user_id) REFERENCES users (id)
+    )`
+  ];
 
-// Create tables if they don't exist
-db.serialize(() => {
-  // Users table
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    email TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
+  db.serialize(() => {
+    tables.forEach(tableQuery => {
+      db.run(tableQuery);
+    });
+  });
+};
 
-  // Medicines table
-  db.run(`CREATE TABLE IF NOT EXISTS medicines (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    dose TEXT NOT NULL,
-    time TEXT NOT NULL,
-    frequency TEXT DEFAULT 'daily',
-    notes TEXT,
-    active BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  )`);
+// Utility functions
+const asyncHandler = (fn) => (req, res, next) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
 
-  // Medicine history table
-  db.run(`CREATE TABLE IF NOT EXISTS medicine_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    medicine_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    taken_at DATETIME NOT NULL,
-    status TEXT DEFAULT 'taken', -- taken, missed, skipped
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (medicine_id) REFERENCES medicines (id),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  )`);
+const sendResponse = (res, status, data, message = null) => {
+  const response = message ? { message, ...data } : data;
+  res.status(status).json(response);
+};
 
-  // Reminders table
-  db.run(`CREATE TABLE IF NOT EXISTS reminders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    medicine_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    reminder_time TIME NOT NULL,
-    enabled BOOLEAN DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (medicine_id) REFERENCES medicines (id),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  )`);
-});
+const sendError = (res, status, error) => {
+  res.status(status).json({ error });
+};
 
-// Middleware to verify JWT token
-const verifyToken = (req, res, next) => {
-  const token = req.headers['authorization']?.split(' ')[1];
-  
+const validateRequiredFields = (data, requiredFields) => {
+  const missing = requiredFields.filter(field => !data[field]);
+  return missing.length > 0 ? missing : null;
+};
+
+const dbQuery = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.all(query, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+};
+
+const dbGet = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.get(query, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+};
+
+const dbRun = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.run(query, params, function(err) {
+      if (err) reject(err);
+      else resolve({ id: this.lastID, changes: this.changes });
+    });
+  });
+};
+
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
   if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
+    return sendError(res, 401, 'Access token required');
   }
 
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ error: 'Invalid token' });
+      return sendError(res, 403, 'Invalid or expired token');
     }
-    req.userId = decoded.userId;
+    req.user = user;
     next();
   });
 };
 
-// AUTH ROUTES
+// User management utilities
+const hashPassword = async (password) => {
+  return await bcrypt.hash(password, 10);
+};
 
-// Register user
-app.post('/api/auth/register', async (req, res) => {
-  const { username, password, email } = req.body;
+const comparePassword = async (password, hashedPassword) => {
+  return await bcrypt.compare(password, hashedPassword);
+};
 
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
-  }
-
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
-    db.run(
-      'INSERT INTO users (username, password, email) VALUES (?, ?, ?)',
-      [username, hashedPassword, email],
-      function(err) {
-        if (err) {
-          if (err.code === 'SQLITE_CONSTRAINT') {
-            return res.status(400).json({ error: 'Username already exists' });
-          }
-          return res.status(500).json({ error: 'Database error' });
-        }
-        
-        const token = jwt.sign({ userId: this.lastID }, JWT_SECRET, { expiresIn: '24h' });
-        res.status(201).json({
-          message: 'User created successfully',
-          token,
-          user: { id: this.lastID, username, email }
-        });
-      }
-    );
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Login user
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password required' });
-  }
-
-  db.get(
-    'SELECT * FROM users WHERE username = ?',
-    [username],
-    async (err, user) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-
-      if (!user) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      try {
-        const validPassword = await bcrypt.compare(password, user.password);
-        if (!validPassword) {
-          return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({
-          message: 'Login successful',
-          token,
-          user: { id: user.id, username: user.username, email: user.email }
-        });
-      } catch (error) {
-        res.status(500).json({ error: 'Server error' });
-      }
-    }
+const generateToken = (user) => {
+  return jwt.sign(
+    { userId: user.id, email: user.email },
+    JWT_SECRET,
+    { expiresIn: '24h' }
   );
-});
+};
 
-// MEDICINE ROUTES
+const findUserByEmail = async (email) => {
+  const user = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
+  return user || null;
+};
 
-// Get all medicines for user
-app.get('/api/medicines', verifyToken, (req, res) => {
-  db.all(
-    'SELECT * FROM medicines WHERE user_id = ? AND active = 1 ORDER BY time',
-    [req.userId],
-    (err, medicines) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      res.json(medicines);
-    }
+const createUser = async (userData) => {
+  const { username, email, password } = userData;
+  const hashedPassword = await hashPassword(password);
+  
+  const result = await dbRun(
+    'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+    [username, email, hashedPassword]
   );
-});
+  
+  return {
+    id: result.id,
+    username,
+    email,
+    created_at: new Date().toISOString()
+  };
+};
 
-// Add new medicine
-app.post('/api/medicines', verifyToken, (req, res) => {
-  const { name, dose, time, frequency, notes } = req.body;
+// Medicine management utilities
+const validateMedicineData = (data) => {
+  const required = ['name', 'dosage', 'frequency', 'start_date'];
+  return validateRequiredFields(data, required);
+};
 
-  if (!name || !dose || !time) {
-    return res.status(400).json({ error: 'Name, dose, and time are required' });
+const getMedicinesByUserId = async (userId) => {
+  return await dbQuery(
+    'SELECT * FROM medicines WHERE user_id = ? AND active = 1 ORDER BY created_at DESC',
+    [userId]
+  );
+};
+
+const createMedicine = async (medicineData, userId) => {
+  const { name, dosage, frequency, start_date, end_date, notes } = medicineData;
+  
+  const result = await dbRun(
+    `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes) 
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [userId, name, dosage, frequency, start_date, end_date, notes]
+  );
+  
+  return {
+    id: result.id,
+    user_id: userId,
+    ...medicineData,
+    created_at: new Date().toISOString()
+  };
+};
+
+const updateMedicine = async (medicineId, updateData, userId) => {
+  const fields = [];
+  const values = [];
+  
+  Object.entries(updateData).forEach(([key, value]) => {
+    if (value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
+    }
+  });
+  
+  if (fields.length === 0) {
+    throw new Error('No fields to update');
   }
-
-  db.run(
-    'INSERT INTO medicines (user_id, name, dose, time, frequency, notes) VALUES (?, ?, ?, ?, ?, ?)',
-    [req.userId, name, dose, time, frequency || 'daily', notes],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      res.status(201).json({
-        id: this.lastID,
-        user_id: req.userId,
-        name,
-        dose,
-        time,
-        frequency: frequency || 'daily',
-        notes,
-        active: 1
-      });
-    }
+  
+  values.push(medicineId, userId);
+  
+  const result = await dbRun(
+    `UPDATE medicines SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
+    values
   );
-});
+  
+  return result.changes > 0;
+};
 
-// Update medicine
-app.put('/api/medicines/:id', verifyToken, (req, res) => {
-  const { name, dose, time, frequency, notes } = req.body;
-  const medicineId = req.params.id;
-
-  db.run(
-    'UPDATE medicines SET name = ?, dose = ?, time = ?, frequency = ?, notes = ? WHERE id = ? AND user_id = ?',
-    [name, dose, time, frequency, notes, medicineId, req.userId],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Medicine not found' });
-      }
-      
-      res.json({ message: 'Medicine updated successfully' });
-    }
-  );
-});
-
-// Delete medicine (soft delete)
-app.delete('/api/medicines/:id', verifyToken, (req, res) => {
-  const medicineId = req.params.id;
-
-  db.run(
+const deleteMedicine = async (medicineId, userId) => {
+  const result = await dbRun(
     'UPDATE medicines SET active = 0 WHERE id = ? AND user_id = ?',
-    [medicineId, req.userId],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Medicine not found' });
-      }
-      
-      res.json({ message: 'Medicine deleted successfully' });
-    }
+    [medicineId, userId]
   );
-});
+  
+  return result.changes > 0;
+};
 
-// MEDICINE HISTORY ROUTES
+// Schedule management utilities
+const getSchedulesByUserId = async (userId) => {
+  return await dbQuery(`
+    SELECT s.*, m.name as medicine_name, m.dosage, m.frequency 
+    FROM schedules s 
+    JOIN medicines m ON s.medicine_id = m.id 
+    WHERE m.user_id = ? AND m.active = 1
+    ORDER BY s.scheduled_date DESC, s.scheduled_time
+  `, [userId]);
+};
 
-// Record medicine intake
-app.post('/api/medicines/:id/record', verifyToken, (req, res) => {
-  const medicineId = req.params.id;
-  const { status, notes, taken_at } = req.body;
+const getTodaysSchedule = async (userId) => {
+  const today = new Date().toISOString().split('T')[0];
+  return await dbQuery(`
+    SELECT s.*, m.name as medicine_name, m.dosage, m.frequency 
+    FROM schedules s 
+    JOIN medicines m ON s.medicine_id = m.id 
+    WHERE m.user_id = ? AND m.active = 1 AND s.scheduled_date = ?
+    ORDER BY s.scheduled_time
+  `, [userId, today]);
+};
 
-  const takenAt = taken_at || new Date().toISOString();
+const createSchedule = async (scheduleData) => {
+  const { medicine_id, scheduled_time, scheduled_date } = scheduleData;
+  const date = scheduled_date || new Date().toISOString().split('T')[0];
+  
+  const result = await dbRun(
+    'INSERT INTO schedules (medicine_id, scheduled_time, scheduled_date) VALUES (?, ?, ?)',
+    [medicine_id, scheduled_time, date]
+  );
+  
+  return {
+    id: result.id,
+    medicine_id,
+    scheduled_time,
+    scheduled_date: date,
+    taken: false,
+    created_at: new Date().toISOString()
+  };
+};
 
-  db.run(
+const markScheduleAsTaken = async (scheduleId, userId) => {
+  const result = await dbRun(`
+    UPDATE schedules 
+    SET taken = TRUE, taken_at = CURRENT_TIMESTAMP 
+    WHERE id = ? AND medicine_id IN (
+      SELECT id FROM medicines WHERE user_id = ?
+    )
+  `, [scheduleId, userId]);
+  
+  return result.changes > 0;
+};
+
+// History and Statistics utilities
+const recordMedicineHistory = async (medicineId, userId, status = 'taken', notes = null) => {
+  const result = await dbRun(
     'INSERT INTO medicine_history (medicine_id, user_id, taken_at, status, notes) VALUES (?, ?, ?, ?, ?)',
-    [medicineId, req.userId, takenAt, status || 'taken', notes],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      res.status(201).json({
-        id: this.lastID,
-        medicine_id: medicineId,
-        user_id: req.userId,
-        taken_at: takenAt,
-        status: status || 'taken',
-        notes
-      });
-    }
+    [medicineId, userId, new Date().toISOString(), status, notes]
   );
-});
+  
+  return {
+    id: result.id,
+    medicine_id: medicineId,
+    user_id: userId,
+    taken_at: new Date().toISOString(),
+    status,
+    notes
+  };
+};
 
-// Get medicine history
-app.get('/api/history', verifyToken, (req, res) => {
-  const { date_from, date_to, medicine_id } = req.query;
-
+const getMedicineHistory = async (userId, filters = {}) => {
   let query = `
-    SELECT mh.*, m.name as medicine_name, m.dose 
+    SELECT mh.*, m.name as medicine_name, m.dosage 
     FROM medicine_history mh 
     JOIN medicines m ON mh.medicine_id = m.id 
     WHERE mh.user_id = ?
   `;
-  let params = [req.userId];
+  let params = [userId];
 
-  if (date_from) {
+  if (filters.date_from) {
     query += ' AND DATE(mh.taken_at) >= ?';
-    params.push(date_from);
+    params.push(filters.date_from);
   }
 
-  if (date_to) {
+  if (filters.date_to) {
     query += ' AND DATE(mh.taken_at) <= ?';
-    params.push(date_to);
+    params.push(filters.date_to);
   }
 
-  if (medicine_id) {
+  if (filters.medicine_id) {
     query += ' AND mh.medicine_id = ?';
-    params.push(medicine_id);
+    params.push(filters.medicine_id);
   }
 
   query += ' ORDER BY mh.taken_at DESC';
 
-  db.all(query, params, (err, history) => {
-    if (err) {
-      return res.status(500).json({ error: 'Database error' });
-    }
-    res.json(history);
-  });
-});
+  return await dbQuery(query, params);
+};
 
-// Get statistics
-app.get('/api/stats', verifyToken, (req, res) => {
-  const queries = {
-    totalMedicines: 'SELECT COUNT(*) as count FROM medicines WHERE user_id = ? AND active = 1',
-    totalDosesTaken: 'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "taken"',
-    totalDosesMissed: 'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "missed"',
-    adherenceRate: `
-      SELECT 
-        ROUND(
-          (COUNT(CASE WHEN status = 'taken' THEN 1 END) * 100.0 / COUNT(*)), 2
-        ) as rate 
-      FROM medicine_history 
-      WHERE user_id = ? AND DATE(taken_at) >= DATE('now', '-30 days')
-    `
-  };
-
+const getStatistics = async (userId) => {
   const stats = {};
-  let completed = 0;
-
-  Object.keys(queries).forEach(key => {
-    db.get(queries[key], [req.userId], (err, result) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      stats[key] = result.count !== undefined ? result.count : result.rate || 0;
-      completed++;
-      
-      if (completed === Object.keys(queries).length) {
-        res.json(stats);
-      }
-    });
-  });
-});
-
-// Get daily medicine schedule
-app.get('/api/schedule/today', verifyToken, (req, res) => {
-  const today = new Date().toISOString().split('T')[0];
   
-  const query = `
+  // Total active medicines
+  const totalMedicines = await dbGet(
+    'SELECT COUNT(*) as count FROM medicines WHERE user_id = ? AND active = 1',
+    [userId]
+  );
+  stats.totalMedicines = totalMedicines.count;
+  
+  // Total doses taken
+  const totalTaken = await dbGet(
+    'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "taken"',
+    [userId]
+  );
+  stats.totalDosesTaken = totalTaken.count;
+  
+  // Total doses missed
+  const totalMissed = await dbGet(
+    'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "missed"',
+    [userId]
+  );
+  stats.totalDosesMissed = totalMissed.count;
+  
+  // Adherence rate (last 30 days)
+  const adherence = await dbGet(`
     SELECT 
-      m.*,
-      CASE 
-        WHEN mh.id IS NOT NULL THEN 1 
-        ELSE 0 
-      END as taken_today
-    FROM medicines m
-    LEFT JOIN medicine_history mh ON m.id = mh.medicine_id 
-      AND DATE(mh.taken_at) = ? 
-      AND mh.status = 'taken'
-    WHERE m.user_id = ? AND m.active = 1
-    ORDER BY m.time
-  `;
+      ROUND(
+        (COUNT(CASE WHEN status = 'taken' THEN 1 END) * 100.0 / COUNT(*)), 2
+      ) as rate 
+    FROM medicine_history 
+    WHERE user_id = ? AND DATE(taken_at) >= DATE('now', '-30 days')
+  `, [userId]);
+  stats.adherenceRate = adherence.rate || 0;
+  
+  return stats;
+};
 
-  db.all(query, [today, req.userId], (err, schedule) => {
-    if (err) {
-      return res.status(500).json({ error: 'Database error' });
+// Reminder utilities
+const getRemindersByUserId = async (userId) => {
+  return await dbQuery(`
+    SELECT r.*, m.name as medicine_name, m.dosage 
+    FROM reminders r 
+    JOIN medicines m ON r.medicine_id = m.id 
+    WHERE r.user_id = ? AND r.enabled = 1 AND m.active = 1
+    ORDER BY r.reminder_time
+  `, [userId]);
+};
+
+const createReminder = async (reminderData, userId) => {
+  const { medicine_id, reminder_time } = reminderData;
+  
+  const result = await dbRun(
+    'INSERT INTO reminders (medicine_id, user_id, reminder_time) VALUES (?, ?, ?)',
+    [medicine_id, userId, reminder_time]
+  );
+  
+  return {
+    id: result.id,
+    medicine_id,
+    user_id: userId,
+    reminder_time,
+    enabled: true,
+    created_at: new Date().toISOString()
+  };
+};
+
+const updateReminder = async (reminderId, updateData, userId) => {
+  const { reminder_time, enabled } = updateData;
+  
+  const result = await dbRun(
+    'UPDATE reminders SET reminder_time = ?, enabled = ? WHERE id = ? AND user_id = ?',
+    [reminder_time, enabled, reminderId, userId]
+  );
+  
+  return result.changes > 0;
+};
+
+const deleteReminder = async (reminderId, userId) => {
+  const result = await dbRun(
+    'DELETE FROM reminders WHERE id = ? AND user_id = ?',
+    [reminderId, userId]
+  );
+  
+  return result.changes > 0;
+};
+
+// Routes
+// Health check
+app.get('/api/health', (req, res) => {
+  sendResponse(res, 200, { status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Authentication routes
+app.post('/api/auth/register', asyncHandler(async (req, res) => {
+  const missing = validateRequiredFields(req.body, ['username', 'email', 'password']);
+  if (missing) {
+    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
+  }
+
+  const { username, email, password } = req.body;
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return sendError(res, 400, 'Invalid email format');
+  }
+
+  // Check if user exists
+  const existingUser = await findUserByEmail(email);
+  if (existingUser) {
+    return sendError(res, 400, 'User with this email already exists');
+  }
+
+  try {
+    const user = await createUser({ username, email, password });
+    const token = generateToken(user);
+    sendResponse(res, 201, { user, token }, 'User registered successfully');
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return sendError(res, 400, 'Username or email already exists');
     }
-    res.json(schedule);
-  });
-});
+    throw error;
+  }
+}));
 
-// Serve frontend
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.post('/api/auth/login', asyncHandler(async (req, res) => {
+  const missing = validateRequiredFields(req.body, ['email', 'password']);
+  if (missing) {
+    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
+  }
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
+  const { email, password } = req.body;
+
+  const user = await findUserByEmail(email);
+  if (!user || !(await comparePassword(password, user.password))) {
+    return sendError(res, 401, 'Invalid credentials');
+  }
+
+  const token = generateToken(user);
+  const { password: _, ...userWithoutPassword } = user;
+  
+  sendResponse(res, 200, { 
+    token, 
+    user: userWithoutPassword 
+  }, 'Login successful');
+}));
+
+// Medicine routes
+app.get('/api/medicines', authenticateToken, asyncHandler(async (req, res) => {
+  const medicines = await getMedicinesByUserId(req.user.userId);
+  sendResponse(res, 200, { medicines });
+}));
+
+app.post('/api/medicines', authenticateToken, asyncHandler(async (req, res) => {
+  const missing = validateMedicineData(req.body);
+  if (missing) {
+    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
+  }
+
+  const medicine = await createMedicine(req.body, req.user.userId);
+  sendResponse(res, 201, { medicine }, 'Medicine added successfully');
+}));
+
+app.put('/api/medicines/:id', authenticateToken, asyncHandler(async (req, res) => {
+  const medicineId = parseInt(req.params.id);
+  
+  if (Object.keys(req.body).length === 0) {
+    return sendError(res, 400, 'No data provided for update');
+  }
+
+  const updated = await updateMedicine(medicineId, req.body, req.user.userId);
+  
+  if (!updated) {
+    return sendError(res, 404, 'Medicine not found or you do not have permission to update it');
+  }
+
+  sendResponse(res, 200, {}, 'Medicine updated successfully');
+}));
+
+app.delete('/api/medicines/:id', authenticateToken, asyncHandler(async (req, res) => {
+  const medicineId = parseInt(req.params.id);
+  
+  const deleted = await deleteMedicine(medicineId, req.user.userId);
+  
+  if (!deleted) {
+    return sendError(res, 404, 'Medicine not found or you do not have permission to delete it');
+  }
+
+  sendResponse(res, 200, {}, 'Medicine deleted successfully');
+}));
+
+// Schedule routes
+app.get('/api/schedules', authenticateToken, asyncHandler(async (req, res) => {
+  const schedules = await getSchedulesByUserId(req.user.userId);
+  sendResponse(res, 200, { schedules });
+}));
+
+app.get('/api/schedules/today', authenticateToken, asyncHandler(async (req, res) => {
+  const todaysSchedule = await getTodaysSchedule(req.user.userId);
+  sendResponse(res, 200, { schedules: todaysSchedule });
+}));
+
+app.post('/api/schedules', authenticateToken, asyncHandler(async (req, res) => {
+  const missing = validateRequiredFields(req.body, ['medicine_id', 'scheduled_time']);
+  if (missing) {
+    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
+  }
+
+  const schedule = await createSchedule(req.body);
+  sendResponse(res, 201, { schedule }, 'Schedule created successfully');
+}));
+
+app.put('/api/schedules/:id/taken', authenticateToken, asyncHandler(async (req, res) => {
+  const scheduleId = parseInt(req.params.id);
+  
+  const updated = await markScheduleAsTaken(scheduleId, req.user.userId);
+  
+  if (!updated) {
+    return sendError(res, 404, 'Schedule not found or you do not have permission to update it');
+  }
+
+  sendResponse(res, 200, {}, 'Schedule marked as taken');
+}));
+
+// History routes
+app.post('/api/medicines/:id/record', authenticateToken, asyncHandler(async (req, res) => {
+  const medicineId = parseInt(req.params.id);
+  const { status, notes } = req.body;
+  
+  const record = await recordMedicineHistory(medicineId, req.user.userId, status, notes);
+  sendResponse(res, 201, { record }, 'Medicine history recorded');
+}));
+
+app.get('/api/history', authenticateToken, asyncHandler(async (req, res) => {
+  const filters = {
+    date_from: req.query.date_from,
+    date_to: req.query.date_to,
+    medicine_id: req.query.medicine_id
+  };
+  
+  const history = await getMedicineHistory(req.user.userId, filters);
+  sendResponse(res, 200, { history });
+}));
+
+// Statistics route
+app.get('/api/stats', authenticateToken, asyncHandler(async (req, res) => {
+  const stats = await getStatistics(req.user.userId);
+  sendResponse(res, 200, { stats });
+}));
+
+// Reminder routes
+app.get('/api/reminders', authenticateToken, asyncHandler(async (req, res) => {
+  const reminders = await getRemindersByUserId(req.user.userId);
+  sendResponse(res, 200, { reminders });
+}));
+
+app.post('/api/reminders', authenticateToken, asyncHandler(async (req, res) => {
+  const missing = validateRequiredFields(req.body, ['medicine_id', 'reminder_time']);
+  if (missing) {
+    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
+  }
+
+  const reminder = await createReminder(req.body, req.user.userId);
+  sendResponse(res, 201, { reminder }, 'Reminder created successfully');
+}));
+
+app.put('/api/reminders/:id', authenticateToken, asyncHandler(async (req, res) => {
+  const reminderId = parseInt(req.params.id);
+  
+  if (Object.keys(req.body).length === 0) {
+    return sendError(res, 400, 'No data provided for update');
+  }
+
+  const updated = await updateReminder(reminderId, req.body, req.user.userId);
+  
+  if (!updated) {
+    return sendError(res, 404, 'Reminder not found or you do not have permission to update it');
+  }
+
+  sendResponse(res, 200, {}, 'Reminder updated successfully');
+}));
+
+app.delete('/api/reminders/:id', authenticateToken, asyncHandler(async (req, res) => {
+  const reminderId = parseInt(req.params.id);
+  
+  const deleted = await deleteReminder(reminderId, req.user.userId);
+  
+  if (!deleted) {
+    return sendError(res, 404, 'Reminder not found or you do not have permission to delete it');
+  }
+
+  sendResponse(res, 200, {}, 'Reminder deleted successfully');
+}));
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  sendError(res, 404, 'Route not found');
 });
 
-// Start server only if this file is run directly (not imported)
+// Error handling middleware
+app.use((err, req, res, _next) => {
+  console.error(err.stack);
+  sendError(res, 500, 'Something went wrong!');
+});
+
+// Initialize database and start server
+initializeDatabase();
+
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Database: ${dbPath}`);
   });
 }
 
-// Export the app for testing
 module.exports = app;
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-  console.log('\nShutting down gracefully...');
-  db.close((err) => {
-    if (err) {
-      console.error(err.message);
-    } else {
-      console.log('Database connection closed.');
-    }
-    process.exit(0);
-  });
-});
