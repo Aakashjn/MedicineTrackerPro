@@ -1,8 +1,9 @@
 // backend/knexfile.js
 
-// Ensure dotenv loads environment variables for local testing
-// Adjust path if your .env file is in the project root, not backend/
-require('dotenv').config({ path: process.env.NODE_ENV === 'production' ? null : '../.env' });
+// Load environment variables from the project root .env file
+// This ensures that DATABASE_URL_DEVELOPMENT (and other variables) are available
+// when running 'npx knex' commands locally.
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 module.exports = {
   development: {
@@ -15,7 +16,7 @@ module.exports = {
       database: process.env.DB_NAME_DEV || 'medicine_tracker_dev', // <<< IMPORTANT: Use your actual local PostgreSQL database name
     },
     migrations: {
-      directory: './migrations', // Directory for migration files
+      directory: './migrations', // Directory for migration files (relative to knexfile.js)
       tableName: 'knex_migrations', // Table to track applied migrations
     },
     seeds: {
@@ -25,18 +26,14 @@ module.exports = {
 
   production: {
     client: 'pg',
-    // Railway automatically provides DATABASE_URL to your application service.
-    // Knex will pick this up.
-    connection: process.env.DATABASE_URL,
+    connection: process.env.DATABASE_URL, // Railway provides DATABASE_URL
     migrations: {
       directory: './migrations',
       tableName: 'knex_migrations',
     },
-    pool: { // Connection pool settings for production
+    pool: {
       min: 2,
       max: 10
-    },
-    // Optional: if you need to enable SSL for secure connection on some cloud providers
-    // ssl: { rejectUnauthorized: false }
+    }
   }
 };
