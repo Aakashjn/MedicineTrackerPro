@@ -1,9 +1,9 @@
 // backend/knexfile.js
-
-// Load environment variables immediately and absolutely.
-// This ensures variables are available regardless of how knex is invoked.
-// If your .env is in the project root (one level up from 'backend'), this path is correct.
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('DATABASE_URL_DEVELOPMENT:', process.env.DATABASE_URL_DEVELOPMENT);
+console.log('Migrations directory:', require('path').resolve(__dirname, './migrations')); // Check this path specifically
 
 module.exports = {
   development: {
