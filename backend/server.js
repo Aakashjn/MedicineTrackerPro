@@ -13,10 +13,59 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const dbPath = path.join(__dirname, 'medicine_tracker.db');
 const db = new sqlite3.Database(dbPath);
 
+// Enhanced CORS configuration for Render deployment
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:4000',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:4000',
+      // Add your actual Render frontend URL here
+      'https://your-frontend-app.onrender.com',
+      // This allows any onrender.com subdomain - replace with your specific URL
+      /^https:\/\/.*\.onrender\.com$/
+    ];
+    
+    // Check if origin matches any allowed pattern
+    const isAllowed = allowedOrigins.some(pattern => {
+      if (typeof pattern === 'string') {
+        return pattern === origin;
+      } else if (pattern instanceof RegExp) {
+        return pattern.test(origin);
+      }
+      return false;
+    });
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.log('Blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Add request logging for debugging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.get('Origin')}`);
+  next();
+});
 
 // Database initialization
 const initializeDatabase = () => {
@@ -76,9 +125,15 @@ const initializeDatabase = () => {
 
   db.serialize(() => {
     tables.forEach(tableQuery => {
-      db.run(tableQuery);
+      db.run(tableQuery, (err) => {
+        if (err) {
+          console.error('Error creating table:', err);
+        }
+      });
     });
   });
+  
+  console.log('Database initialized successfully');
 };
 
 // Utility functions
@@ -92,6 +147,7 @@ const sendResponse = (res, status, data, message = null) => {
 };
 
 const sendError = (res, status, error) => {
+  console.error('API Error:', error);
   res.status(status).json({ error });
 };
 
@@ -103,8 +159,12 @@ const validateRequiredFields = (data, requiredFields) => {
 const dbQuery = (query, params = []) => {
   return new Promise((resolve, reject) => {
     db.all(query, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+      if (err) {
+        console.error('Database query error:', err);
+        reject(err);
+      } else {
+        resolve(rows);
+      }
     });
   });
 };
@@ -112,8 +172,12 @@ const dbQuery = (query, params = []) => {
 const dbGet = (query, params = []) => {
   return new Promise((resolve, reject) => {
     db.get(query, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
+      if (err) {
+        console.error('Database get error:', err);
+        reject(err);
+      } else {
+        resolve(row);
+      }
     });
   });
 };
@@ -121,8 +185,12 @@ const dbGet = (query, params = []) => {
 const dbRun = (query, params = []) => {
   return new Promise((resolve, reject) => {
     db.run(query, params, function(err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
+      if (err) {
+        console.error('Database run error:', err);
+        reject(err);
+      } else {
+        resolve({ id: this.lastID, changes: this.changes });
+      }
     });
   });
 };
@@ -138,6 +206,7 @@ const authenticateToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
+      console.error('JWT verification error:', err);
       return sendError(res, 403, 'Invalid or expired token');
     }
     req.user = user;
@@ -437,11 +506,35 @@ const deleteReminder = async (reminderId, userId) => {
 // Routes
 // Health check
 app.get('/api/health', (req, res) => {
-  sendResponse(res, 200, { status: 'OK', timestamp: new Date().toISOString() });
+  sendResponse(res, 200, { 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root route for testing
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Medicine Tracker Pro API is running!',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth/login and /api/auth/register',
+      medicines: '/api/medicines',
+      schedules: '/api/schedules',
+      history: '/api/history',
+      stats: '/api/stats',
+      reminders: '/api/reminders'
+    }
+  });
 });
 
 // Authentication routes
 app.post('/api/auth/register', asyncHandler(async (req, res) => {
+  console.log('Registration attempt:', { email: req.body.email, username: req.body.username });
+  
   const missing = validateRequiredFields(req.body, ['username', 'email', 'password']);
   if (missing) {
     return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
@@ -464,8 +557,10 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
   try {
     const user = await createUser({ username, email, password });
     const token = generateToken(user);
+    console.log('User registered successfully:', user.email);
     sendResponse(res, 201, { user, token }, 'User registered successfully');
   } catch (error) {
+    console.error('Registration error:', error);
     if (error.message.includes('UNIQUE constraint failed')) {
       return sendError(res, 400, 'Username or email already exists');
     }
@@ -474,6 +569,8 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
+  console.log('Login attempt:', { email: req.body.email });
+  
   const missing = validateRequiredFields(req.body, ['email', 'password']);
   if (missing) {
     return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
@@ -482,13 +579,21 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   const user = await findUserByEmail(email);
-  if (!user || !(await comparePassword(password, user.password))) {
+  if (!user) {
+    console.log('User not found:', email);
+    return sendError(res, 401, 'Invalid credentials');
+  }
+
+  const isPasswordValid = await comparePassword(password, user.password);
+  if (!isPasswordValid) {
+    console.log('Invalid password for user:', email);
     return sendError(res, 401, 'Invalid credentials');
   }
 
   const token = generateToken(user);
   const { password: _, ...userWithoutPassword } = user;
   
+  console.log('Login successful:', email);
   sendResponse(res, 200, { 
     token, 
     user: userWithoutPassword 
@@ -642,25 +747,54 @@ app.delete('/api/reminders/:id', authenticateToken, asyncHandler(async (req, res
   sendResponse(res, 200, {}, 'Reminder deleted successfully');
 }));
 
-// 404 handler
-app.use((req, res) => {
-  sendError(res, 404, 'Route not found');
+// Catch-all route for frontend routing (if serving a SPA)
+app.get('*', (req, res) => {
+  // Only serve index.html for non-API routes
+  if (!req.path.startsWith('/api/')) {
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    if (require('fs').existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).json({ error: 'Frontend not found' });
+    }
+  } else {
+    sendError(res, 404, 'API route not found');
+  }
 });
 
 // Error handling middleware
 app.use((err, req, res, _next) => {
-  console.error(err.stack);
+  console.error('Unhandled error:', err.stack);
   sendError(res, 500, 'Something went wrong!');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing database connection...');
+  db.close((err) => {
+    if (err) {
+      console.error('Error closing database:', err);
+    } else {
+      console.log('Database connection closed.');
+    }
+    process.exit(0);
+  });
 });
 
 // Initialize database and start server
 initializeDatabase();
 
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Database: ${dbPath}`);
-  });
-}
+// Make sure server binds to 0.0.0.0 for Render
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Database: ${dbPath}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+});
+
+// Handle server errors
+server.on('error', (err) => {
+  console.error('Server error:', err);
+});
 
 module.exports = app;
