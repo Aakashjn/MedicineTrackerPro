@@ -571,19 +571,20 @@ let adherenceChart;
 let isRegisterMode = false; // New variable to track current mode
 
 // Utility Functions
-function showAlert(containerId, message, type = 'info') {
-  const container = document.getElementById(containerId);
-  container.innerHTML = `
-    <div class="alert alert-${type} alert-custom alert-dismissible fade show">
-      ${message}
-      <button type="button" class="close" data-dismiss="alert">
-        <span>&times;</span>
-      </button>
-    </div>
-  `;
-  setTimeout(() => {
-    container.innerHTML = '';
-  }, 5000);
+function showAlert(elementId, message, type) {
+    const alertElement = document.getElementById(elementId);
+    if (alertElement) { // <--- ADD THIS CHECK
+        alertElement.textContent = message;
+        alertElement.className = `alert alert-${type}`; // This line caused the error
+        alertElement.style.display = 'block';
+        setTimeout(() => {
+            alertElement.style.display = 'none';
+        }, 5000);
+    } else {
+        console.error(`Alert element with ID '${elementId}' not found.`);
+        // Fallback: console.log or use a different alert mechanism if the element is truly missing
+        alert(message); // Simple browser alert as a fallback
+    }
 }
 
 function showLoading(elementId, show = true) {
