@@ -742,17 +742,25 @@ function goToMainPage() {
 
 // Medicine Management
 async function loadMedicines() {
-  showLoading('medicineLoading', true);
-  
-  try {
-    medicines = await apiCall('/medicines');
-    renderMedicines();
-    await loadTodaySchedule();
-  } catch (error) {
-    showAlert('trackerAlert', 'Failed to load medicines: ' + error.message, 'danger');
-  } finally {
-    showLoading('medicineLoading', false);
-  }
+    showLoading('medicineLoading', true);
+
+    try {
+        const response = await apiCall('/medicines');
+        // Ensure response is an array before assigning, otherwise default to empty array
+        if (Array.isArray(response)) {
+            medicines = response;
+        } else {
+            console.warn('API /medicines returned non-array data, defaulting to empty array:', response);
+            medicines = []; // Default to an empty array if the API doesn't return an array
+        }
+        renderMedicines();
+        await loadTodaySchedule();
+    } catch (error) {
+        showAlert('trackerAlert', 'Failed to load medicines: ' + error.message, 'danger');
+        medicines = []; // IMPORTANT: Ensure 'medicines' is an array even on API call failure
+    } finally {
+        showLoading('medicineLoading', false);
+    }
 }
 
 async function addMedicine(event) {
