@@ -25,7 +25,7 @@ const corsOptions = {
       'http://127.0.0.1:3000',
       'http://127.0.0.1:4000',
       // Add your actual Render frontend URL here
-      'https://medicinetrackerpro-frontend.onrender.com',
+      'https://medicinetrackerpro-production.up.railway.app',
       // This allows any onrender.com subdomain - replace with your specific URL
       /^https:\/\/.*\.onrender\.com$/
     ];
