@@ -446,39 +446,42 @@
     </div>
 
     <div class="medicine-form">
-      <h4><i class="fas fa-plus-circle mr-2"></i>Add New Medicine</h4>
-      <form id="medicineForm">
-        <div class="form-row">
-          <div class="col-md-3 mb-2">
-            <input type="text" id="medicineName" class="form-control" placeholder="Medicine Name" required />
-          </div>
+      <h4><i class="fas fa-plus-circle mr-2"></i>Add New Medicine</h4>
+      <form id="medicineForm">
+        <div class="form-row">
+          <div class="col-md-3 mb-2">
+            <input type="text" id="medicineName" class="form-control" placeholder="Medicine Name" required />
+          </div>
+          <div class="col-md-2 mb-2">
+            <input type="text" id="medicineDosage" class="form-control" placeholder="Dosage (e.g., 200mg)" required />
+          </div>
+          <div class="col-md-2 mb-2">
+            <input type="time" id="medicineTime" class="form-control" required />
+          </div>
           <div class="col-md-2 mb-2">
-            <input type="text" id="medicineDose" class="form-control" placeholder="Dose" required />
+            <input type="date" id="medicineStartDate" class="form-control" title="Start Date" required />
           </div>
-          <div class="col-md-2 mb-2">
-            <input type="time" id="medicineTime" class="form-control" required />
-          </div>
-          <div class="col-md-2 mb-2">
-            <select id="medicineFrequency" class="form-control">
-              <option value="daily">Daily</option>
-              <option value="twice-daily">Twice Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="as-needed">As Needed</option>
-            </select>
-          </div>
-          <div class="col-md-3 mb-2">
-            <button type="submit" class="btn btn-success btn-enhanced btn-block">
-              <i class="fas fa-plus mr-1"></i>Add Medicine
-            </button>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="col-12">
-            <textarea id="medicineNotes" class="form-control mt-2" placeholder="Notes (optional)" rows="2"></textarea>
-          </div>
-        </div>
-      </form>
-    </div>
+          <div class="col-md-2 mb-2">
+            <select id="medicineFrequency" class="form-control">
+              <option value="daily">Daily</option>
+              <option value="twice-daily">Twice Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="as-needed">As Needed</option>
+            </select>
+          </div>
+          <div class="col-md-3 mb-2">
+            <button type="submit" class="btn btn-success btn-enhanced btn-block">
+              <i class="fas fa-plus mr-1"></i>Add Medicine
+            </button>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="col-12">
+            <textarea id="medicineNotes" class="form-control mt-2" placeholder="Notes (optional)" rows="2"></textarea>
+          </div>
+        </div>
+      </form>
+    </div>
 
     <div id="medicineSection" class="tracker-container">
       <h4><i class="fas fa-pills mr-2"></i>Your Medicines</h4>
@@ -753,24 +756,29 @@ async function loadMedicines() {
 }
 
 async function addMedicine(event) {
-  event.preventDefault();
-  
-  const name = document.getElementById('medicineName').value.trim();
-  const dose = document.getElementById('medicineDose').value.trim();
-  const time = document.getElementById('medicineTime').value;
-  const frequency = document.getElementById('medicineFrequency').value;
-  const notes = document.getElementById('medicineNotes').value.trim();
+  event.preventDefault();
+  
+  const name = document.getElementById('medicineName').value.trim();
+  const dosage = document.getElementById('medicineDosage').value.trim(); // <--- RENAMED 'dose' to 'dosage'
+  const time = document.getElementById('medicineTime').value;
+  const startDate = document.getElementById('medicineStartDate').value; // <--- ADD THIS LINE to get the start date
+  const frequency = document.getElementById('medicineFrequency').value;
+  const notes = document.getElementById('medicineNotes').value.trim();
 
-  if (!name || !dose || !time) {
-    showAlert('trackerAlert', 'Please fill all required fields.', 'warning');
-    return;
-  }
+  // Update the validation check to include dosage and startDate
+  if (!name || !dosage || !time || !startDate) { // <--- UPDATED VALIDATION
+    showAlert('trackerAlert', 'Please fill all required fields (Medicine Name, Dosage, Time, Start Date).', 'warning');
+    return;
+  }
 
-  try {
-    const newMedicine = await apiCall('/medicines', {
-      method: 'POST',
-      body: JSON.stringify({ name, dose, time, frequency, notes })
-    });
+  try {
+    const newMedicine = await apiCall('/medicines', {
+      method: 'POST',
+      body: JSON.stringify({ name, dosage, time, frequency, notes, start_date: startDate }) // <--- UPDATED PAYLOAD: 'dosage' and 'start_date'
+    });
+
+    medicines.push(newMedicine);
+    // ... rest of the function remains the same
 
     medicines.push(newMedicine);
     renderMedicines();
@@ -832,7 +840,7 @@ function renderMedicines() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${medicine.name}</strong></td>
-      <td>${medicine.dose}</td>
+      <td>${medicine.dosage}</td>
       <td>${medicine.time}</td>
       <td><span class="badge badge-info">${medicine.frequency}</span></td>
       <td><span class="badge badge-secondary">Active</span></td>
