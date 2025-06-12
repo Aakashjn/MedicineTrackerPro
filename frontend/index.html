@@ -571,20 +571,120 @@ let adherenceChart;
 let isRegisterMode = false; // New variable to track current mode
 
 // Utility Functions
+// Fixed showAlert function - replace the existing one in your code
 function showAlert(elementId, message, type) {
     const alertElement = document.getElementById(elementId);
-    if (alertElement) { // <--- ADD THIS CHECK
-        alertElement.textContent = message;
-        alertElement.className = `alert alert-${type}`; // This line caused the error
+    if (alertElement) {
+        alertElement.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
         alertElement.style.display = 'block';
+        
+        // Auto-hide after 5 seconds
         setTimeout(() => {
-            alertElement.style.display = 'none';
+            const alertDiv = alertElement.querySelector('.alert');
+            if (alertDiv) {
+                alertDiv.classList.remove('show');
+                setTimeout(() => {
+                    alertElement.innerHTML = '';
+                    alertElement.style.display = 'none';
+                }, 150); // Wait for fade transition
+            }
         }, 5000);
     } else {
         console.error(`Alert element with ID '${elementId}' not found.`);
-        // Fallback: console.log or use a different alert mechanism if the element is truly missing
-        alert(message); // Simple browser alert as a fallback
+        // Fallback to browser alert
+        alert(message);
     }
+}
+
+// Alternative: Create a universal alert function that works across all pages
+function showUniversalAlert(message, type = 'info') {
+    // Try to find any available alert container
+    const alertContainers = ['loginAlert', 'trackerAlert'];
+    let alertElement = null;
+    
+    for (const containerId of alertContainers) {
+        const container = document.getElementById(containerId);
+        if (container && container.offsetParent !== null) { // Check if visible
+            alertElement = container;
+            break;
+        }
+    }
+    
+    if (alertElement) {
+        alertElement.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+        `;
+        alertElement.style.display = 'block';
+        
+        setTimeout(() => {
+            const alertDiv = alertElement.querySelector('.alert');
+            if (alertDiv) {
+                alertDiv.classList.remove('show');
+                setTimeout(() => {
+                    alertElement.innerHTML = '';
+                    alertElement.style.display = 'none';
+                }, 150);
+            }
+        }, 5000);
+    } else {
+        // Create a temporary alert at the top of the page
+        createTemporaryAlert(message, type);
+    }
+}
+
+// Function to create a temporary alert when no container is available
+function createTemporaryAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 9999;
+        min-width: 300px;
+        max-width: 500px;
+    `;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        alertDiv.classList.remove('show');
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.parentNode.removeChild(alertDiv);
+            }
+        }, 150);
+    }, 5000);
+    
+    // Allow manual dismissal
+    alertDiv.querySelector('.close').addEventListener('click', () => {
+        alertDiv.classList.remove('show');
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.parentNode.removeChild(alertDiv);
+            }
+        }, 150);
+    });
 }
 
 function showLoading(elementId, show = true) {
@@ -812,7 +912,7 @@ async function addMedicine(event) {
         await loadUserStats(); // Make sure loadUserStats is also updated (see below)
 
         document.getElementById('medicineForm').reset();
-        showAlert('trackerAlert', 'Medicine added successfully!', 'success');
+        showUniversalAlert('Medicine added successfully!', 'success');
     } catch (error) {
         showAlert('trackerAlert', 'Failed to add medicine: ' + error.message, 'danger');
     }
