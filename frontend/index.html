@@ -1149,125 +1149,173 @@ async function loadUserData() {
     loadUserStats(),
     loadHistory()
   ]);
-  updateCounters(); // Update main page counters with real data after loading
-  updateChart(); // Update chart with real data after loading
+  updateCounters();
+  
+  // Only initialize and update chart if we're on the tracker page
+  const trackerPage = document.getElementById('trackerPage');
+  if (trackerPage && trackerPage.classList.contains('active')) {
+    // Wait a bit for the page to be fully rendered
+    setTimeout(() => {
+      if (!adherenceChart) {
+        initializeChart();
+      }
+      updateChart();
+    }, 100);
+  }
 }
 
 function initializeChart() {
-  const ctx = document.getElementById('adherenceChart').getContext('2d');
-  adherenceChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Adherence Rate (%)',
-        data: [],
-        borderColor: '#667eea',
-        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      scales: {
-        y: {
-          beginAtZero: true,
-          max: 100,
-          title: {
-            display: true,
-            text: 'Adherence Rate (%)'
+  const canvas = document.getElementById('adherenceChart');
+  if (!canvas) {
+    console.warn('Chart canvas not found');
+    return;
+  }
+  
+  // Check if Chart.js is loaded
+  if (typeof Chart === 'undefined') {
+    console.error('Chart.js not loaded');
+    return;
+  }
+  
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    console.error('Could not get canvas context');
+    return;
+  }
+  
+  try {
+    adherenceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Adherence Rate (%)',
+          data: [],
+          borderColor: '#667eea',
+          backgroundColor: 'rgba(102, 126, 234, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 100,
+            title: {
+              display: true,
+              text: 'Adherence Rate (%)'
+            }
+          },
+          x: {
+            title: {
+              display: true,
+              text: 'Date'
+            }
           }
         },
-        x: {
-          title: {
-            display: true,
-            text: 'Date'
-          }
-        }
-      },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              return `${context.dataset.label}: ${context.raw}%`;
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `${context.dataset.label}: ${context.raw}%`;
+              }
             }
           }
         }
       }
-    }
-  });
+    });
+  } catch (error) {
+    console.error('Failed to initialize chart:', error);
+  }
 }
 
 async function updateChart() {
-    try {
-        const response = await apiCall('/history?date_from=' + new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
-        let adherenceHistory = [];
-        // Backend returns { history: [...] }, so we extract the array
-        if (response && Array.isArray(response.history)) {
-            adherenceHistory = response.history;
-        } else {
-            console.warn('API /history in updateChart returned unexpected data structure, defaulting to empty array:', response);
-        }
-
-        // Group history by date and calculate daily adherence
-        const dailyData = {};
-        const allDates = new Set();
-        const today = new Date();
-
-        for (let i = 0; i < 30; i++) {
-            const date = new Date(today);
-            date.setDate(today.getDate() - i);
-            allDates.add(date.toISOString().split('T')[0]); // Add all dates in the range
-        }
-
-        adherenceHistory.forEach(record => { // This .forEach will now work
-            const date = new Date(record.taken_at).toISOString().split('T')[0];
-            if (!dailyData[date]) {
-                dailyData[date] = { taken: 0, total: 0 };
-            }
-            if (record.status === 'taken') {
-                dailyData[date].taken++;
-            }
-            dailyData[date].total++;
-        });
-
-        const labels = Array.from(allDates).sort();
-        const data = labels.map(date => {
-            if (dailyData[date]) {
-                return Math.round((dailyData[date].taken / dailyData[date].total) * 100);
-            }
-            return 0;
-        });
-
-        // Ensure adherenceChart is initialized before updating it
-        if (!adherenceChart) {
-            initializeChart();
-        }
-        adherenceChart.data.labels = labels;
-        adherenceChart.data.datasets[0].data = data;
-        adherenceChart.update();
-
-    } catch (error) {
-        console.error('Failed to update chart:', error);
-        // Fallback to random data if API call fails
-        const last7Days = [];
-        const adherenceData = [];
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date();
-            date.setDate(date.getDate() - i);
-            last7Days.push(date.toLocaleDateString());
-            adherenceData.push(Math.floor(Math.random() * 40) + 60);
-        }
-        // Ensure adherenceChart is initialized even for fallback
-        if (!adherenceChart) {
-            initializeChart();
-        }
-        adherenceChart.data.labels = last7Days;
-        adherenceChart.data.datasets[0].data = adherenceData;
-        adherenceChart.update();
+  // Check if we're on the tracker page and chart canvas exists
+  const canvas = document.getElementById('adherenceChart');
+  if (!canvas || !canvas.offsetParent) {
+    console.log('Chart canvas not visible, skipping update');
+    return;
+  }
+  
+  try {
+    const response = await apiCall('/history?date_from=' + new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+    let adherenceHistory = [];
+    
+    if (response && Array.isArray(response.history)) {
+      adherenceHistory = response.history;
+    } else {
+      console.warn('API /history in updateChart returned unexpected data structure, defaulting to empty array:', response);
     }
+
+    // Group history by date and calculate daily adherence
+    const dailyData = {};
+    const allDates = new Set();
+    const today = new Date();
+
+    for (let i = 0; i < 30; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      allDates.add(date.toISOString().split('T')[0]);
+    }
+
+    adherenceHistory.forEach(record => {
+      const date = new Date(record.taken_at).toISOString().split('T')[0];
+      if (!dailyData[date]) {
+        dailyData[date] = { taken: 0, total: 0 };
+      }
+      if (record.status === 'taken') {
+        dailyData[date].taken++;
+      }
+      dailyData[date].total++;
+    });
+
+    const labels = Array.from(allDates).sort();
+    const data = labels.map(date => {
+      if (dailyData[date]) {
+        return Math.round((dailyData[date].taken / dailyData[date].total) * 100);
+      }
+      return 0;
+    });
+
+    // Initialize chart if not already done
+    if (!adherenceChart) {
+      initializeChart();
+    }
+    
+    // Update chart only if it was successfully initialized
+    if (adherenceChart) {
+      adherenceChart.data.labels = labels;
+      adherenceChart.data.datasets[0].data = data;
+      adherenceChart.update();
+    }
+
+  } catch (error) {
+    console.error('Failed to update chart:', error);
+    
+    // Fallback to sample data if API call fails
+    const last7Days = [];
+    const adherenceData = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      last7Days.push(date.toLocaleDateString());
+      adherenceData.push(Math.floor(Math.random() * 40) + 60);
+    }
+    
+    if (!adherenceChart) {
+      initializeChart();
+    }
+    
+    if (adherenceChart) {
+      adherenceChart.data.labels = last7Days;
+      adherenceChart.data.datasets[0].data = adherenceData;
+      adherenceChart.update();
+    }
+  }
 }
+
 
 function updateCounters() {
   // These counters can now reflect real data from userStats or medicines array
@@ -1325,10 +1373,14 @@ document.getElementById('loginToggle').addEventListener('click', (e) => {
 
 document.getElementById('getStartedBtn').addEventListener('click', () => {
   showPage('trackerPage');
-  if (!adherenceChart) {
-    initializeChart(); // Initialize chart only once
-  }
-  loadUserData(); // Load all user-specific data
+  
+  // Initialize chart after page is shown
+  setTimeout(() => {
+    if (!adherenceChart) {
+      initializeChart();
+    }
+    loadUserData();
+  }, 100);
 });
 
 // Initialize app on DOMContentLoaded
