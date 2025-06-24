@@ -8,6 +8,7 @@
 
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     body, html {
@@ -260,10 +261,50 @@
       box-shadow: 0 5px 15px rgba(0,0,0,0.1);
       margin: 20px 0;
     }
+
+    /* Page Navigation */
+    .page-nav {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 15px;
+      padding: 20px;
+      margin: 20px 0;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    .page-nav .btn {
+      margin: 5px;
+    }
+
+    /* Medicine Card */
+    .medicine-card {
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      margin: 10px 0;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+      transition: all 0.3s ease;
+    }
+
+    .medicine-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    }
+
+    /* History Item */
+    .history-item {
+      background: white;
+      border-radius: 10px;
+      padding: 15px;
+      margin: 10px 0;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      border-left: 4px solid #667eea;
+    }
   </style>
 </head>
 <body>
 
+<!-- Login Page -->
 <div id="loginPage" class="page-container active">
   <div class="login-container">
     <div class="login-card">
@@ -285,11 +326,12 @@
           </div>
         </div>
         
-        <div class="form-group" id="emailGroup" style="display:none;"> <div class="input-group">
+        <div class="form-group" id="emailGroup" style="display:none;">
+          <div class="input-group">
             <div class="input-group-prepend">
               <span class="input-group-text"><i class="fas fa-envelope"></i></span>
             </div>
-            <input type="email" id="email" class="form-control" placeholder="Email (optional)" />
+            <input type="email" id="email" class="form-control" placeholder="Email" />
           </div>
         </div>
 
@@ -320,6 +362,7 @@
   </div>
 </div>
 
+<!-- Main Dashboard Page -->
 <div id="mainPage" class="page-container">
   <nav class="navbar navbar-expand-lg navigation-wrap fixed-top">
     <div class="container">
@@ -331,6 +374,8 @@
       </button>
       <div class="collapse navbar-collapse" id="navbarNav">
         <ul class="navbar-nav ml-auto">
+          <li class="nav-item"><a class="nav-link" href="#" onclick="showAddMedicinePage()">Add Medicine</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="showHistoryPage()">History</a></li>
           <li class="nav-item"><a class="nav-link" href="#features">Features</a></li>
           <li class="nav-item"><a class="nav-link" href="#stats">Stats</a></li>
           <li class="nav-item">
@@ -347,8 +392,11 @@
     <div class="container">
       <h1>Stay on Track with Your Medications</h1>
       <p class="lead">Never miss a dose with our intelligent medicine tracker</p>
-      <button id="getStartedBtn" class="btn btn-primary btn-lg btn-enhanced">
-        <i class="fas fa-rocket mr-2"></i>Get Started
+      <button onclick="showAddMedicinePage()" class="btn btn-primary btn-lg btn-enhanced">
+        <i class="fas fa-plus mr-2"></i>Add Medicine
+      </button>
+      <button onclick="showHistoryPage()" class="btn btn-outline-light btn-lg btn-enhanced ml-3">
+        <i class="fas fa-history mr-2"></i>View History
       </button>
     </div>
   </section>
@@ -413,20 +461,20 @@
   </section>
 </div>
 
-<div id="trackerPage" class="page-container">
+<!-- Add Medicine Page -->
+<div id="addMedicinePage" class="page-container">
   <nav class="navbar navbar-expand-lg navigation-wrap fixed-top">
     <div class="container">
       <a class="navbar-brand" href="#" onclick="goToMainPage()">
         <i class="fas fa-pills mr-2"></i>MedicineTracker Pro
       </a>
-      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavTracker">
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavAdd">
         <span class="navbar-toggler-icon"></span>
       </button>
-      <div class="collapse navbar-collapse" id="navbarNavTracker">
+      <div class="collapse navbar-collapse" id="navbarNavAdd">
         <ul class="navbar-nav ml-auto">
-          <li class="nav-item"><a class="nav-link" href="#" onclick="goToMainPage()">Home</a></li>
-          <li class="nav-item"><a class="nav-link" href="#medicineSection">Medicines</a></li>
-          <li class="nav-item"><a class="nav-link" href="#historySection">History</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="goToMainPage()">Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="showHistoryPage()">History</a></li>
           <li class="nav-item">
             <a class="nav-link" href="#" onclick="logout()">
               <i class="fas fa-sign-out-alt mr-1"></i>Logout
@@ -438,97 +486,135 @@
   </nav>
 
   <div class="container" style="padding-top: 100px;">
-    <div id="trackerAlert"></div>
+    <div id="addMedicineAlert"></div>
 
+    <div class="tracker-container">
+      <h2><i class="fas fa-plus-circle mr-2"></i>Add New Medicine</h2>
+      <p class="text-muted">Fill in the details below to add a new medicine to your tracker.</p>
+      
+      <form id="medicineForm">
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="medicineName">Medicine Name *</label>
+            <input type="text" id="medicineName" class="form-control" placeholder="e.g., Aspirin" required />
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="medicineDosage">Dosage *</label>
+            <input type="text" id="medicineDosage" class="form-control" placeholder="e.g., 200mg" required />
+          </div>
+        </div>
+        
+        <div class="row">
+          <div class="col-md-4 mb-3">
+            <label for="medicineFrequency">Frequency *</label>
+            <select id="medicineFrequency" class="form-control" required>
+              <option value="">Select frequency</option>
+              <option value="daily">Daily</option>
+              <option value="twice-daily">Twice Daily</option>
+              <option value="three-times-daily">Three Times Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="as-needed">As Needed</option>
+            </select>
+          </div>
+          <div class="col-md-4 mb-3">
+            <label for="medicineStartDate">Start Date *</label>
+            <input type="date" id="medicineStartDate" class="form-control" required />
+          </div>
+          <div class="col-md-4 mb-3">
+            <label for="medicineEndDate">End Date (Optional)</label>
+            <input type="date" id="medicineEndDate" class="form-control" />
+          </div>
+        </div>
+        
+        <div class="mb-3">
+          <label for="medicineNotes">Notes (Optional)</label>
+          <textarea id="medicineNotes" class="form-control" rows="3" placeholder="Any additional notes about this medicine..."></textarea>
+        </div>
+        
+        <div class="text-center">
+          <button type="submit" class="btn btn-success btn-enhanced btn-lg">
+            <i class="fas fa-plus mr-2"></i>Add Medicine
+          </button>
+          <button type="button" onclick="goToMainPage()" class="btn btn-secondary btn-enhanced btn-lg ml-3">
+            <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Today's Schedule -->
     <div class="tracker-container">
       <h3><i class="fas fa-calendar-day mr-2"></i>Today's Schedule</h3>
       <div id="todaySchedule" class="row"></div>
     </div>
 
-    <div class="medicine-form">
-      <h4><i class="fas fa-plus-circle mr-2"></i>Add New Medicine</h4>
-      <form id="medicineForm">
-        <div class="form-row">
-          <div class="col-md-3 mb-2">
-            <input type="text" id="medicineName" class="form-control" placeholder="Medicine Name" required />
-          </div>
-          <div class="col-md-2 mb-2">
-            <input type="text" id="medicineDosage" class="form-control" placeholder="Dosage (e.g., 200mg)" required />
-          </div>
-          <div class="col-md-2 mb-2">
-            <input type="time" id="medicineTime" class="form-control" required />
-          </div>
-          <div class="col-md-2 mb-2">
-            <input type="date" id="medicineStartDate" class="form-control" title="Start Date" required />
-          </div>
-          <div class="col-md-2 mb-2">
-            <select id="medicineFrequency" class="form-control">
-              <option value="daily">Daily</option>
-              <option value="twice-daily">Twice Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="as-needed">As Needed</option>
-            </select>
-          </div>
-          <div class="col-md-3 mb-2">
-            <button type="submit" class="btn btn-success btn-enhanced btn-block">
-              <i class="fas fa-plus mr-1"></i>Add Medicine
-            </button>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="col-12">
-            <textarea id="medicineNotes" class="form-control mt-2" placeholder="Notes (optional)" rows="2"></textarea>
-          </div>
-        </div>
-      </form>
-    </div>
-
-    <div id="medicineSection" class="tracker-container">
+    <!-- Your Medicines -->
+    <div class="tracker-container">
       <h4><i class="fas fa-pills mr-2"></i>Your Medicines</h4>
       <div class="loading" id="medicineLoading">
         <div class="spinner"></div>
         <p>Loading medicines...</p>
       </div>
-      <div class="table-responsive">
-        <table class="table table-striped">
-          <thead class="thead-light">
-            <tr>
-              <th>Medicine</th>
-              <th>Dose</th>
-              <th>Time</th>
-              <th>Frequency</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="medicineTableBody"></tbody>
-        </table>
+      <div id="medicinesList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Medicine History Page -->
+<div id="historyPage" class="page-container">
+  <nav class="navbar navbar-expand-lg navigation-wrap fixed-top">
+    <div class="container">
+      <a class="navbar-brand" href="#" onclick="goToMainPage()">
+        <i class="fas fa-pills mr-2"></i>MedicineTracker Pro
+      </a>
+      <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavHistory">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNavHistory">
+        <ul class="navbar-nav ml-auto">
+          <li class="nav-item"><a class="nav-link" href="#" onclick="goToMainPage()">Dashboard</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" onclick="showAddMedicinePage()">Add Medicine</a></li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" onclick="logout()">
+              <i class="fas fa-sign-out-alt mr-1"></i>Logout
+            </a>
+          </li>
+        </ul>
       </div>
     </div>
+  </nav>
 
-    <div id="historySection" class="tracker-container">
-      <h4><i class="fas fa-history mr-2"></i>Medicine History</h4>
-      <div class="row mb-3">
+  <div class="container" style="padding-top: 100px;">
+    <div id="historyAlert"></div>
+
+    <div class="tracker-container">
+      <h2><i class="fas fa-history mr-2"></i>Medicine History</h2>
+      <p class="text-muted">View your complete medication history and track your adherence.</p>
+      
+      <div class="row mb-4">
         <div class="col-md-3">
+          <label for="dateFrom">From Date</label>
           <input type="date" id="dateFrom" class="form-control" />
         </div>
         <div class="col-md-3">
+          <label for="dateTo">To Date</label>
           <input type="date" id="dateTo" class="form-control" />
         </div>
         <div class="col-md-3">
+          <label for="medicineFilter">Medicine</label>
+          <select id="medicineFilter" class="form-control">
+            <option value="">All Medicines</option>
+          </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
           <button onclick="loadHistory()" class="btn btn-primary btn-enhanced">
             <i class="fas fa-search mr-1"></i>Filter History
           </button>
         </div>
       </div>
-      <div id="historyList"></div>
     </div>
 
-    <div class="chart-container">
-      <h4><i class="fas fa-chart-bar mr-2"></i>Adherence Analytics</h4>
-      <canvas id="adherenceChart" width="400" height="200"></canvas>
-    </div>
-
+    <!-- Statistics -->
     <div class="tracker-container">
       <h4><i class="fas fa-chart-pie mr-2"></i>Your Statistics</h4>
       <div class="row">
@@ -558,213 +644,195 @@
         </div>
       </div>
     </div>
+
+    <!-- Chart -->
+    <div class="chart-container">
+      <h4><i class="fas fa-chart-bar mr-2"></i>Adherence Analytics</h4>
+      <canvas id="adherenceChart" width="400" height="200"></canvas>
+    </div>
+
+    <!-- History List -->
+    <div class="tracker-container">
+      <h4><i class="fas fa-list mr-2"></i>History Records</h4>
+      <div class="loading" id="historyLoading">
+        <div class="spinner"></div>
+        <p>Loading history...</p>
+      </div>
+      <div id="historyList"></div>
+    </div>
+
+    <div class="text-center mb-4">
+      <button type="button" onclick="goToMainPage()" class="btn btn-secondary btn-enhanced btn-lg">
+        <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
+      </button>
+    </div>
   </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
 <script>
 // API Configuration
-const API_BASE = 'https://medicinetrackerpro-production.up.railway.app/api';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? 'http://localhost:4000/api' 
+  : 'https://medicinetrackerpro-production.up.railway.app/api';
+
 let authToken = localStorage.getItem('authToken');
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
 let medicines = [];
 let adherenceChart;
-let isRegisterMode = false; // New variable to track current mode
+let isRegisterMode = false;
 
 // Utility Functions
-// Fixed showAlert function - replace the existing one in your code
 function showAlert(elementId, message, type) {
-    const alertElement = document.getElementById(elementId);
-    if (alertElement) {
-        alertElement.innerHTML = `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-        `;
-        alertElement.style.display = 'block';
-        
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            const alertDiv = alertElement.querySelector('.alert');
-            if (alertDiv) {
-                alertDiv.classList.remove('show');
-                setTimeout(() => {
-                    alertElement.innerHTML = '';
-                    alertElement.style.display = 'none';
-                }, 150); // Wait for fade transition
-            }
-        }, 5000);
-    } else {
-        console.error(`Alert element with ID '${elementId}' not found.`);
-        // Fallback to browser alert
-        alert(message);
-    }
-}
-
-// Alternative: Create a universal alert function that works across all pages
-function showUniversalAlert(message, type = 'info') {
-    // Try to find any available alert container
-    const alertContainers = ['loginAlert', 'trackerAlert'];
-    let alertElement = null;
-    
-    for (const containerId of alertContainers) {
-        const container = document.getElementById(containerId);
-        if (container && container.offsetParent !== null) { // Check if visible
-            alertElement = container;
-            break;
-        }
-    }
-    
-    if (alertElement) {
-        alertElement.innerHTML = `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
-            </div>
-        `;
-        alertElement.style.display = 'block';
-        
-        setTimeout(() => {
-            const alertDiv = alertElement.querySelector('.alert');
-            if (alertDiv) {
-                alertDiv.classList.remove('show');
-                setTimeout(() => {
-                    alertElement.innerHTML = '';
-                    alertElement.style.display = 'none';
-                }, 150);
-            }
-        }, 5000);
-    } else {
-        // Create a temporary alert at the top of the page
-        createTemporaryAlert(message, type);
-    }
-}
-
-// Function to create a temporary alert when no container is available
-function createTemporaryAlert(message, type) {
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
-    alertDiv.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 9999;
-        min-width: 300px;
-        max-width: 500px;
-    `;
-    alertDiv.innerHTML = `
+  const alertElement = document.getElementById(elementId);
+  if (alertElement) {
+    alertElement.innerHTML = `
+      <div class="alert alert-${type} alert-dismissible fade show" role="alert">
         ${message}
         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
-            <span aria-hidden="true">&times;</span>
+          <span aria-hidden="true">&times;</span>
         </button>
+      </div>
     `;
+    alertElement.style.display = 'block';
     
-    document.body.appendChild(alertDiv);
-    
-    // Auto-remove after 5 seconds
     setTimeout(() => {
+      const alertDiv = alertElement.querySelector('.alert');
+      if (alertDiv) {
         alertDiv.classList.remove('show');
         setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.parentNode.removeChild(alertDiv);
-            }
+          alertElement.innerHTML = '';
+          alertElement.style.display = 'none';
         }, 150);
+      }
     }, 5000);
-    
-    // Allow manual dismissal
-    alertDiv.querySelector('.close').addEventListener('click', () => {
-        alertDiv.classList.remove('show');
-        setTimeout(() => {
-            if (alertDiv.parentNode) {
-                alertDiv.parentNode.removeChild(alertDiv);
-            }
-        }, 150);
-    });
+  }
 }
 
 function showLoading(elementId, show = true) {
   const element = document.getElementById(elementId);
-  if (show) {
-    element.classList.add('show');
-  } else {
-    element.classList.remove('show');
+  if (element) {
+    if (show) {
+      element.classList.add('show');
+    } else {
+      element.classList.remove('show');
+    }
   }
 }
 
-// Utility functions
+// API Call Function
 async function apiCall(endpoint, options = {}) {
-    const url = endpoint.startsWith('/') ? `${API_BASE}${endpoint}` : `${API_BASE}/${endpoint}`;
+  const url = endpoint.startsWith('/') ? `${API_BASE}${endpoint}` : `${API_BASE}/${endpoint}`;
 
-    const headers = {
-        'Content-Type': 'application/json',
-        ...options.headers // Allow overriding headers
-    };
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
 
-    if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers
+    });
+
+    const contentType = response.headers.get('content-type');
+    let data = {};
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
     }
 
-    try {
-        const response = await fetch(url, {
-            ...options,
-            headers
-        });
-
-        const contentType = response.headers.get('content-type');
-        let data = {};
-        if (contentType && contentType.includes('application/json')) {
-            data = await response.json();
-        } else {
-            data = await response.text();
-            // console.warn(`API call to ${url} returned non-JSON response:`, data); // Keep this for debugging if needed
-        }
-
-        if (!response.ok) {
-            const errorMessage = data.error || data.message || `API Error: ${response.statusText}`;
-            throw new Error(errorMessage);
-        }
-
-        return data; // This will return the raw JSON object from the backend (e.g., {medicines: [...]})
-    } catch (error) {
-        console.error('API Error (in apiCall):', error); // More specific logging
-        throw new Error('API Error: ' + (error.message || 'Network error'));
+    if (!response.ok) {
+      const errorMessage = data.error || data.message || `API Error: ${response.statusText}`;
+      throw new Error(errorMessage);
     }
+
+    return data;
+  } catch (error) {
+    console.error('API Error:', error);
+    throw new Error('API Error: ' + (error.message || 'Network error'));
+  }
+}
+
+// Page Navigation Functions
+function showPage(pageId) {
+  document.querySelectorAll('.page-container').forEach(page => {
+    page.classList.remove('active');
+  });
+  document.getElementById(pageId).classList.add('active');
+}
+
+function goToMainPage() {
+  showPage('mainPage');
+  loadStats();
+}
+
+function showAddMedicinePage() {
+  showPage('addMedicinePage');
+  loadTodaySchedule();
+  loadMedicines();
+  // Set today's date as default
+  document.getElementById('medicineStartDate').value = new Date().toISOString().split('T')[0];
+}
+
+function showHistoryPage() {
+  showPage('historyPage');
+  loadUserStats();
+  loadMedicineFilter();
+  loadHistory();
+  loadAdherenceChart();
 }
 
 // Authentication Functions
 async function login() {
   const username = document.getElementById('username').value.trim();
+  const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value.trim();
 
-  if (!username || !password) {
-    showAlert('loginAlert', 'Please enter username and password.', 'warning');
+  if (!username && !email) {
+    showAlert('loginAlert', 'Please enter username or email.', 'warning');
+    return;
+  }
+
+  if (!password) {
+    showAlert('loginAlert', 'Please enter password.', 'warning');
     return;
   }
 
   showLoading('loginLoading', true);
 
   try {
+    const loginData = { password };
+    if (email) {
+      loginData.email = email;
+    } else {
+      loginData.username = username;
+    }
+
     const response = await apiCall('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify(loginData)
     });
 
     authToken = response.token;
     currentUser = response.user;
-    
     localStorage.setItem('authToken', authToken);
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
-    showPage('mainPage');
-    await loadUserData();
-    showAlert('trackerAlert', `Welcome back, ${currentUser.username}!`, 'success');
+    showAlert('loginAlert', 'Login successful!', 'success');
+    setTimeout(() => {
+      goToMainPage();
+    }, 1000);
+
   } catch (error) {
-    showAlert('loginAlert', error.message || 'Login failed', 'danger');
+    showAlert('loginAlert', error.message, 'danger');
   } finally {
     showLoading('loginLoading', false);
   }
@@ -772,11 +840,11 @@ async function login() {
 
 async function register() {
   const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value.trim();
   const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value.trim();
 
-  if (!username || !password) {
-    showAlert('loginAlert', 'Username and password are required for registration.', 'warning');
+  if (!username || !email || !password) {
+    showAlert('loginAlert', 'Please fill in all fields.', 'warning');
     return;
   }
 
@@ -785,21 +853,21 @@ async function register() {
   try {
     const response = await apiCall('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, email })
+      body: JSON.stringify({ username, email, password })
     });
 
-    // After successful registration, automatically log them in
     authToken = response.token;
     currentUser = response.user;
-    
     localStorage.setItem('authToken', authToken);
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
-    showAlert('loginAlert', 'Registration successful! You are now logged in.', 'success');
-    showPage('mainPage'); // Go to main page after registration
-    await loadUserData();
+    showAlert('loginAlert', 'Registration successful!', 'success');
+    setTimeout(() => {
+      goToMainPage();
+    }, 1000);
+
   } catch (error) {
-    showAlert('loginAlert', error.message || 'Registration failed', 'danger');
+    showAlert('loginAlert', error.message, 'danger');
   } finally {
     showLoading('loginLoading', false);
   }
@@ -810,112 +878,85 @@ function logout() {
   localStorage.removeItem('currentUser');
   authToken = null;
   currentUser = {};
-  medicines = [];
   showPage('loginPage');
-  // Reset form and mode when logging out
-  document.getElementById('loginForm').reset();
-  setAuthMode('login'); 
 }
 
-// Function to toggle between login and register mode
-function setAuthMode(mode) {
-    isRegisterMode = (mode === 'register');
-    
-    const loginSubmitBtn = document.getElementById('loginSubmitBtn');
-    const emailGroup = document.getElementById('emailGroup');
-    const registerToggleContainer = document.getElementById('registerToggleContainer');
-    const loginToggleContainer = document.getElementById('loginToggleContainer');
-    const authPrompt = document.getElementById('authPrompt');
+// Medicine Functions
+async function addMedicine() {
+  const name = document.getElementById('medicineName').value.trim();
+  const dosage = document.getElementById('medicineDosage').value.trim();
+  const frequency = document.getElementById('medicineFrequency').value;
+  const startDate = document.getElementById('medicineStartDate').value;
+  const endDate = document.getElementById('medicineEndDate').value;
+  const notes = document.getElementById('medicineNotes').value.trim();
 
-    if (isRegisterMode) {
-        loginSubmitBtn.innerHTML = '<i class="fas fa-user-plus mr-2"></i>Register';
-        authPrompt.textContent = 'Create your account';
-        emailGroup.style.display = 'block';
-        registerToggleContainer.style.display = 'none';
-        loginToggleContainer.style.display = 'block';
-    } else {
-        loginSubmitBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Sign In';
-        authPrompt.textContent = 'Sign in to your account';
-        emailGroup.style.display = 'none';
-        document.getElementById('email').value = ''; // Clear email field
-        registerToggleContainer.style.display = 'block';
-        loginToggleContainer.style.display = 'none';
-    }
+  if (!name || !dosage || !frequency || !startDate) {
+    showAlert('addMedicineAlert', 'Please fill in all required fields.', 'warning');
+    return;
+  }
+
+  try {
+    const medicineData = {
+      name,
+      dosage,
+      frequency,
+      start_date: startDate,
+      end_date: endDate || null,
+      notes: notes || null
+    };
+
+    await apiCall('/medicines', {
+      method: 'POST',
+      body: JSON.stringify(medicineData)
+    });
+
+    showAlert('addMedicineAlert', 'Medicine added successfully!', 'success');
+    document.getElementById('medicineForm').reset();
+    document.getElementById('medicineStartDate').value = new Date().toISOString().split('T')[0];
+    loadMedicines();
+    loadTodaySchedule();
+
+  } catch (error) {
+    showAlert('addMedicineAlert', error.message, 'danger');
+  }
 }
 
-
-// Page Navigation
-function showPage(pageId) {
-  document.querySelectorAll('.page-container').forEach(page => {
-    page.classList.remove('active');
-  });
-  document.getElementById(pageId).classList.add('active');
-}
-
-function goToMainPage() {
-  showPage('mainPage');
-  updateCounters();
-}
-
-// Medicine Management
 async function loadMedicines() {
-    showLoading('medicineLoading', true);
-    try {
-        const response = await apiCall('/medicines');
-        // Backend returns { medicines: [...] }, so we extract the array
-        if (response && Array.isArray(response.medicines)) {
-            medicines = response.medicines;
-        } else {
-            console.warn('API /medicines returned unexpected data structure, defaulting to empty array:', response);
-            medicines = [];
-        }
-        renderMedicines();
-        await loadTodaySchedule();
-    } catch (error) {
-        showAlert('trackerAlert', 'Failed to load medicines: ' + error.message, 'danger');
-        medicines = [];
-    } finally {
-        showLoading('medicineLoading', false);
+  showLoading('medicineLoading', true);
+  
+  try {
+    const response = await apiCall('/medicines');
+    medicines = response.medicines || [];
+    
+    const medicinesList = document.getElementById('medicinesList');
+    if (medicines.length === 0) {
+      medicinesList.innerHTML = '<p class="text-muted text-center">No medicines added yet.</p>';
+    } else {
+      medicinesList.innerHTML = medicines.map(medicine => `
+        <div class="medicine-card">
+          <div class="row">
+            <div class="col-md-8">
+              <h5>${medicine.name}</h5>
+              <p class="mb-1"><strong>Dosage:</strong> ${medicine.dosage}</p>
+              <p class="mb-1"><strong>Frequency:</strong> ${medicine.frequency}</p>
+              <p class="mb-1"><strong>Start Date:</strong> ${new Date(medicine.start_date).toLocaleDateString()}</p>
+              ${medicine.end_date ? `<p class="mb-1"><strong>End Date:</strong> ${new Date(medicine.end_date).toLocaleDateString()}</p>` : ''}
+              ${medicine.notes ? `<p class="mb-1"><strong>Notes:</strong> ${medicine.notes}</p>` : ''}
+            </div>
+            <div class="col-md-4 text-right">
+              <button onclick="deleteMedicine(${medicine.id})" class="btn btn-danger btn-sm btn-enhanced">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      `).join('');
     }
-}
-
-async function addMedicine(event) {
-    event.preventDefault();
-    const name = document.getElementById('medicineName').value.trim();
-    const dosage = document.getElementById('medicineDosage').value.trim();
-    const time = document.getElementById('medicineTime').value;
-    const startDate = document.getElementById('medicineStartDate').value;
-    const frequency = document.getElementById('medicineFrequency').value;
-    const notes = document.getElementById('medicineNotes').value.trim();
-
-    if (!name || !dosage || !time || !startDate) {
-        showAlert('trackerAlert', 'Please fill all required fields (Medicine Name, Dosage, Time, Start Date).', 'warning');
-        return;
-    }
-
-    try {
-        const response = await apiCall('/medicines', { // Renamed variable for clarity
-            method: 'POST',
-            body: JSON.stringify({ name, dosage, time, frequency, notes, start_date: startDate })
-        });
-
-        // Your POST /medicines route returns { medicine: {...} }
-        if (response && response.medicine) {
-            medicines.push(response.medicine); // Push the actual medicine object
-        } else {
-            console.warn('API POST /medicines returned unexpected data structure:', response);
-            throw new Error('Unexpected API response after adding medicine.');
-        }
-
-        renderMedicines();
-        await loadTodaySchedule();
-        await loadUserStats(); // Make sure loadUserStats is also updated (see below)
-
-        document.getElementById('medicineForm').reset();
-        showUniversalAlert('Medicine added successfully!', 'success');
-    } catch (error) {
-        showAlert('trackerAlert', 'Failed to add medicine: ' + error.message, 'danger');
-    }
+  } catch (error) {
+    showAlert('addMedicineAlert', error.message, 'danger');
+  } finally {
+    showLoading('medicineLoading', false);
+  }
 }
 
 async function deleteMedicine(medicineId) {
@@ -924,433 +965,184 @@ async function deleteMedicine(medicineId) {
   }
 
   try {
-    await apiCall(`/medicines/${medicineId}`, { method: 'DELETE' });
-    medicines = medicines.filter(m => m.id !== medicineId);
-    renderMedicines();
-    await loadTodaySchedule();
-    await loadUserStats();
-    showAlert('trackerAlert', 'Medicine deleted successfully!', 'success');
-  } catch (error) {
-    showAlert('trackerAlert', 'Failed to delete medicine: ' + error.message, 'danger');
-  }
-}
-
-async function recordMedicine(medicineId, status = 'taken') {
-  try {
-    await apiCall(`/medicines/${medicineId}/record`, {
-      method: 'POST',
-      body: JSON.stringify({ status })
+    await apiCall(`/medicines/${medicineId}`, {
+      method: 'DELETE'
     });
 
-    await loadTodaySchedule(); // Refresh today's schedule to show updated status
-    await loadUserStats();    // Refresh user stats
-    await loadHistory();      // Refresh history
-    updateChart();            // Update adherence chart
-    
-    showAlert('trackerAlert', `Medicine marked as ${status}!`, 'success');
+    showAlert('addMedicineAlert', 'Medicine deleted successfully!', 'success');
+    loadMedicines();
+    loadTodaySchedule();
   } catch (error) {
-    showAlert('trackerAlert', 'Failed to record medicine: ' + error.message, 'danger');
+    showAlert('addMedicineAlert', error.message, 'danger');
   }
-}
-
-function renderMedicines() {
-  const tbody = document.getElementById('medicineTableBody');
-  tbody.innerHTML = '';
-
-  if (medicines.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No medicines added yet.</td></tr>';
-    return;
-  }
-
-  medicines.forEach(medicine => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${medicine.name}</strong></td>
-      <td>${medicine.dosage}</td>
-      <td>${medicine.time}</td>
-      <td><span class="badge badge-info">${medicine.frequency}</span></td>
-      <td><span class="badge badge-secondary">Active</span></td>
-      <td>
-        <button class="btn btn-sm btn-success btn-enhanced mr-1" onclick="recordMedicine(${medicine.id}, 'taken')">
-          <i class="fas fa-check"></i> Taken
-        </button>
-        <button class="btn btn-sm btn-warning btn-enhanced mr-1" onclick="recordMedicine(${medicine.id}, 'missed')">
-          <i class="fas fa-times"></i> Missed
-        </button>
-        <button class="btn btn-sm btn-danger btn-enhanced" onclick="deleteMedicine(${medicine.id})">
-          <i class="fas fa-trash"></i>
-        </button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
 }
 
 async function loadTodaySchedule() {
-    showLoading('scheduleLoading', true);
-    try {
-        const response = await apiCall('/schedules/today');
-        let todaysSchedule = [];
-        // Backend returns { schedules: [...] }, so we extract the array
-        if (response && Array.isArray(response.schedules)) {
-            todaysSchedule = response.schedules;
-        } else {
-            console.warn('API /schedules/today returned unexpected data structure, defaulting to empty array:', response);
-        }
-        renderTodaySchedule(todaysSchedule);
-    } catch (error) {
-        showAlert('trackerAlert', 'Failed to load today\'s schedule: ' + error.message, 'danger');
-    } finally {
-        showLoading('scheduleLoading', false);
-    }
-}
-
-function renderTodaySchedule(schedule) {
-  const container = document.getElementById('todaySchedule');
-  container.innerHTML = '';
-
-  if (schedule.length === 0) {
-    container.innerHTML = '<div class="col-12"><p class="text-muted">No medicines scheduled for today.</p></div>';
-    return;
-  }
-
-  schedule.forEach(item => {
-    const col = document.createElement('div');
-    col.className = 'col-md-4 mb-3';
+  try {
+    const response = await apiCall('/schedules/today');
+    const schedules = response.schedules || [];
     
-    const statusClass = item.taken_today ? 'success' : 'warning';
-    const statusIcon = item.taken_today ? 'check-circle' : 'clock';
-    const statusText = item.taken_today ? 'Taken' : 'Pending';
-    
-    col.innerHTML = `
-      <div class="card border-${statusClass}">
-        <div class="card-body">
-          <h6 class="card-title">
-            <i class="fas fa-pills mr-2"></i>${item.name}
-          </h6>
-          <p class="card-text">
-            <small class="text-muted">
-              <i class="fas fa-${statusIcon} mr-1"></i>${statusText}<br>
-              <i class="fas fa-clock mr-1"></i>${item.time}<br>
-              <i class="fas fa-tablets mr-1"></i>${item.dose}
-            </small>
-          </p>
-          ${!item.taken_today ? `
-            <button class="btn btn-sm btn-success btn-enhanced" onclick="recordMedicine(${item.id}, 'taken')">
-              <i class="fas fa-check mr-1"></i>Mark Taken
-            </button>
-          ` : ''}
+    const scheduleContainer = document.getElementById('todaySchedule');
+    if (schedules.length === 0) {
+      scheduleContainer.innerHTML = '<div class="col-12"><p class="text-muted text-center">No medicines scheduled for today.</p></div>';
+    } else {
+      scheduleContainer.innerHTML = schedules.map(schedule => `
+        <div class="col-md-6 mb-3">
+          <div class="medicine-card">
+            <h6>${schedule.medicine_name}</h6>
+            <p class="mb-1"><strong>Dosage:</strong> ${schedule.dosage}</p>
+            <p class="mb-1"><strong>Time:</strong> ${schedule.scheduled_time}</p>
+            <span class="status-${schedule.taken ? 'taken' : 'pending'}">
+              ${schedule.taken ? 'Taken' : 'Pending'}
+            </span>
+            ${!schedule.taken ? `
+              <button onclick="markAsTaken(${schedule.id})" class="btn btn-success btn-sm btn-enhanced ml-2">
+                <i class="fas fa-check"></i> Mark as Taken
+              </button>
+            ` : ''}
+          </div>
         </div>
-      </div>
-    `;
-    container.appendChild(col);
-  });
+      `).join('');
+    }
+  } catch (error) {
+    console.error('Error loading today\'s schedule:', error);
+  }
 }
 
-// History and Analytics
+async function markAsTaken(scheduleId) {
+  try {
+    await apiCall(`/schedules/${scheduleId}/taken`, {
+      method: 'PUT'
+    });
+
+    showAlert('addMedicineAlert', 'Medicine marked as taken!', 'success');
+    loadTodaySchedule();
+  } catch (error) {
+    showAlert('addMedicineAlert', error.message, 'danger');
+  }
+}
+
+// History Functions
 async function loadHistory() {
+  showLoading('historyLoading', true);
+  
+  try {
     const dateFrom = document.getElementById('dateFrom').value;
     const dateTo = document.getElementById('dateTo').value;
-
-    let query = '';
-    if (dateFrom) query += `?date_from=${dateFrom}`;
-    if (dateTo) query += `<span class="math-inline">\{query ? '&' \: '?'\}date\_to\=</span>{dateTo}`;
-
-    try {
-        const response = await apiCall(`/history${query}`);
-        let historyData = [];
-        // Backend returns { history: [...] }, so we extract the array
-        if (response && Array.isArray(response.history)) {
-            historyData = response.history;
-        } else {
-            console.warn('API /history in loadHistory returned unexpected data structure, defaulting to empty array:', response);
-        }
-        renderHistory(historyData);
-    } catch (error) {
-        showAlert('trackerAlert', 'Failed to load history: ' + error.message, 'danger');
+    const medicineId = document.getElementById('medicineFilter').value;
+    
+    let url = '/history';
+    const params = new URLSearchParams();
+    
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (medicineId) params.append('medicine_id', medicineId);
+    
+    if (params.toString()) {
+      url += '?' + params.toString();
     }
-}
-
-function renderHistory(history) {
-  const container = document.getElementById('historyList');
-  container.innerHTML = '';
-
-  if (history.length === 0) {
-    container.innerHTML = '<p class="text-muted">No history found for the selected period.</p>';
-    return;
-  }
-
-  history.forEach(record => {
-    const div = document.createElement('div');
-    div.className = 'card mb-2';
     
-    const statusClass = record.status === 'taken' ? 'success' : 'danger';
-    const statusIcon = record.status === 'taken' ? 'check' : 'times';
+    const response = await apiCall(url);
+    const history = response.history || [];
     
-    div.innerHTML = `
-      <div class="card-body py-2">
-        <div class="row align-items-center">
-          <div class="col-md-3">
-            <strong>${record.medicine_name}</strong>
-          </div>
-          <div class="col-md-2">
-            ${record.dose}
-          </div>
-          <div class="col-md-3">
-            ${new Date(record.taken_at).toLocaleString()}
-          </div>
-          <div class="col-md-2">
-            <span class="badge badge-${statusClass}">
-              <i class="fas fa-${statusIcon} mr-1"></i>${record.status}
-            </span>
-          </div>
-          <div class="col-md-2 text-muted small">
-            ${record.notes ? `(${record.notes})` : ''}
+    const historyList = document.getElementById('historyList');
+    if (history.length === 0) {
+      historyList.innerHTML = '<p class="text-muted text-center">No history records found.</p>';
+    } else {
+      historyList.innerHTML = history.map(record => `
+        <div class="history-item">
+          <div class="row">
+            <div class="col-md-8">
+              <h6>${record.medicine_name}</h6>
+              <p class="mb-1"><strong>Dosage:</strong> ${record.dosage}</p>
+              <p class="mb-1"><strong>Date:</strong> ${new Date(record.taken_at).toLocaleString()}</p>
+              <p class="mb-1"><strong>Status:</strong> <span class="status-${record.status}">${record.status}</span></p>
+              ${record.notes ? `<p class="mb-1"><strong>Notes:</strong> ${record.notes}</p>` : ''}
+            </div>
           </div>
         </div>
-      </div>
-    `;
-    container.appendChild(div);
-  });
+      `).join('');
+    }
+  } catch (error) {
+    showAlert('historyAlert', error.message, 'danger');
+  } finally {
+    showLoading('historyLoading', false);
+  }
+}
+
+async function loadMedicineFilter() {
+  try {
+    const response = await apiCall('/medicines');
+    const medicines = response.medicines || [];
+    
+    const filterSelect = document.getElementById('medicineFilter');
+    filterSelect.innerHTML = '<option value="">All Medicines</option>' +
+      medicines.map(medicine => `<option value="${medicine.id}">${medicine.name}</option>`).join('');
+  } catch (error) {
+    console.error('Error loading medicine filter:', error);
+  }
 }
 
 async function loadUserStats() {
-    try {
-        const response = await apiCall('/stats');
-        // Backend returns { stats: {...} }, so we extract the object
-        if (response && response.stats) {
-            userStats = response.stats; // Assuming userStats is a global object
-            // Update your user interface elements with the real stats
-            document.getElementById('userTotalMedicines').textContent = userStats.totalMedicines; // Assuming you have an element for this
-            document.getElementById('userDosesTaken').textContent = userStats.totalDosesTaken;
-            document.getElementById('userAdherenceRate').textContent = userStats.adherenceRate;
-            // Add any other UI updates here based on what's in userStats
-        } else {
-            console.warn('API /stats returned unexpected data structure:', response);
-            // Handle cases where stats are not available or malformed, perhaps set to defaults
-            userStats = { totalMedicines: 0, totalDosesTaken: 0, totalDosesMissed: 0, adherenceRate: 0 };
-        }
-    } catch (error) {
-        showAlert('trackerAlert', 'Failed to load user statistics: ' + error.message, 'danger');
-        userStats = { totalMedicines: 0, totalDosesTaken: 0, totalDosesMissed: 0, adherenceRate: 0 }; // Set to defaults on error
-    }
-}
-
-function updateUserStatsDisplay(stats) {
-  document.getElementById('userTotalMedicines').textContent = stats.totalMedicines || 0;
-  document.getElementById('userDosesTaken').textContent = stats.totalDosesTaken || 0;
-  document.getElementById('userDosesMissed').textContent = stats.totalDosesMissed || 0;
-  document.getElementById('userAdherenceRate').textContent = `${stats.adherenceRate || 0}%`;
-}
-
-async function loadUserData() {
-  await Promise.all([
-    loadMedicines(),
-    loadUserStats(),
-    loadHistory()
-  ]);
-  updateCounters();
-  
-  // Only initialize and update chart if we're on the tracker page
-  const trackerPage = document.getElementById('trackerPage');
-  if (trackerPage && trackerPage.classList.contains('active')) {
-    // Wait a bit for the page to be fully rendered
-    setTimeout(() => {
-      if (!adherenceChart) {
-        initializeChart();
-      }
-      updateChart();
-    }, 100);
-  }
-}
-
-function initializeChart() {
-  const canvas = document.getElementById('adherenceChart');
-  if (!canvas) {
-    console.warn('Chart canvas not found');
-    return;
-  }
-  
-  // Check if Chart.js is loaded
-  if (typeof Chart === 'undefined') {
-    console.error('Chart.js not loaded');
-    return;
-  }
-  
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    console.error('Could not get canvas context');
-    return;
-  }
-  
   try {
-    adherenceChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Adherence Rate (%)',
-          data: [],
-          borderColor: '#667eea',
-          backgroundColor: 'rgba(102, 126, 234, 0.1)',
-          tension: 0.4,
-          fill: true
-        }]
-      },
-      options: {
-        responsive: true,
-        scales: {
-          y: {
-            beginAtZero: true,
-            max: 100,
-            title: {
-              display: true,
-              text: 'Adherence Rate (%)'
-            }
-          },
-          x: {
-            title: {
-              display: true,
-              text: 'Date'
-            }
-          }
-        },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                return `${context.dataset.label}: ${context.raw}%`;
-              }
-            }
-          }
+    const response = await apiCall('/stats');
+    const stats = response.stats || {};
+    
+    document.getElementById('userTotalMedicines').textContent = stats.totalMedicines || 0;
+    document.getElementById('userDosesTaken').textContent = stats.totalDosesTaken || 0;
+    document.getElementById('userDosesMissed').textContent = stats.totalDosesMissed || 0;
+    document.getElementById('userAdherenceRate').textContent = (stats.adherenceRate || 0) + '%';
+  } catch (error) {
+    console.error('Error loading user stats:', error);
+  }
+}
+
+async function loadStats() {
+  try {
+    const response = await apiCall('/stats');
+    const stats = response.stats || {};
+    
+    document.getElementById('count1').textContent = stats.totalMedicines || 0;
+    document.getElementById('count2').textContent = stats.totalDosesTaken || 0;
+    document.getElementById('count3').textContent = (stats.adherenceRate || 0) + '%';
+  } catch (error) {
+    console.error('Error loading stats:', error);
+  }
+}
+
+function loadAdherenceChart() {
+  const ctx = document.getElementById('adherenceChart').getContext('2d');
+  
+  if (adherenceChart) {
+    adherenceChart.destroy();
+  }
+  
+  adherenceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'Adherence Rate (%)',
+        data: [85, 90, 78, 95, 88, 92, 87],
+        borderColor: '#667eea',
+        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 100
         }
       }
-    });
-  } catch (error) {
-    console.error('Failed to initialize chart:', error);
-  }
-}
-
-async function updateChart() {
-  // Check if we're on the tracker page and chart canvas exists
-  const canvas = document.getElementById('adherenceChart');
-  if (!canvas || !canvas.offsetParent) {
-    console.log('Chart canvas not visible, skipping update');
-    return;
-  }
-  
-  try {
-    const response = await apiCall('/history?date_from=' + new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
-    let adherenceHistory = [];
-    
-    if (response && Array.isArray(response.history)) {
-      adherenceHistory = response.history;
-    } else {
-      console.warn('API /history in updateChart returned unexpected data structure, defaulting to empty array:', response);
     }
-
-    // Group history by date and calculate daily adherence
-    const dailyData = {};
-    const allDates = new Set();
-    const today = new Date();
-
-    for (let i = 0; i < 30; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
-      allDates.add(date.toISOString().split('T')[0]);
-    }
-
-    adherenceHistory.forEach(record => {
-      const date = new Date(record.taken_at).toISOString().split('T')[0];
-      if (!dailyData[date]) {
-        dailyData[date] = { taken: 0, total: 0 };
-      }
-      if (record.status === 'taken') {
-        dailyData[date].taken++;
-      }
-      dailyData[date].total++;
-    });
-
-    const labels = Array.from(allDates).sort();
-    const data = labels.map(date => {
-      if (dailyData[date]) {
-        return Math.round((dailyData[date].taken / dailyData[date].total) * 100);
-      }
-      return 0;
-    });
-
-    // Initialize chart if not already done
-    if (!adherenceChart) {
-      initializeChart();
-    }
-    
-    // Update chart only if it was successfully initialized
-    if (adherenceChart) {
-      adherenceChart.data.labels = labels;
-      adherenceChart.data.datasets[0].data = data;
-      adherenceChart.update();
-    }
-
-  } catch (error) {
-    console.error('Failed to update chart:', error);
-    
-    // Fallback to sample data if API call fails
-    const last7Days = [];
-    const adherenceData = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      last7Days.push(date.toLocaleDateString());
-      adherenceData.push(Math.floor(Math.random() * 40) + 60);
-    }
-    
-    if (!adherenceChart) {
-      initializeChart();
-    }
-    
-    if (adherenceChart) {
-      adherenceChart.data.labels = last7Days;
-      adherenceChart.data.datasets[0].data = adherenceData;
-      adherenceChart.update();
-    }
-  }
-}
-
-
-function updateCounters() {
-  // These counters can now reflect real data from userStats or medicines array
-  const totalMedicines = medicines.length;
-  const dosesTaken = document.getElementById('userDosesTaken').textContent; // Get from user stats
-  const adherenceRate = parseFloat(document.getElementById('userAdherenceRate').textContent); // Get from user stats
-
-  animateCounter('count1', totalMedicines);
-  animateCounter('count2', parseInt(dosesTaken));
-  animateCounter('count3', adherenceRate); 
-  animateCounter('count4', 1); // Still a demo value for active users
-}
-
-function animateCounter(id, target) {
-  const element = document.getElementById(id);
-  if (!element) return;
-  
-  let current = 0;
-  const step = target > 100 ? Math.ceil(target / 100) : 1;
-  const interval = setInterval(() => {
-    current += step;
-    if (current >= target) {
-      current = target;
-      clearInterval(interval);
-    }
-    // Format adherence rate with %
-    element.textContent = (id === 'count3' || id === 'userAdherenceRate') ? `${current}%` : current;
-  }, 15);
+  });
 }
 
 // Event Listeners
-document.getElementById('medicineForm').addEventListener('submit', addMedicine);
-
-// Updated login form submit listener
-document.getElementById('loginForm').addEventListener('submit', (e) => {
+document.getElementById('loginForm').addEventListener('submit', function(e) {
   e.preventDefault();
   if (isRegisterMode) {
     register();
@@ -1359,63 +1151,41 @@ document.getElementById('loginForm').addEventListener('submit', (e) => {
   }
 });
 
-// New event listeners for toggling auth modes
-document.getElementById('registerToggle').addEventListener('click', (e) => {
-    e.preventDefault();
-    setAuthMode('register');
+document.getElementById('medicineForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  addMedicine();
 });
 
-document.getElementById('loginToggle').addEventListener('click', (e) => {
-    e.preventDefault();
-    setAuthMode('login');
+document.getElementById('registerToggle').addEventListener('click', function(e) {
+  e.preventDefault();
+  isRegisterMode = true;
+  document.getElementById('authPrompt').textContent = 'Create your account';
+  document.getElementById('loginSubmitBtn').innerHTML = '<i class="fas fa-user-plus mr-2"></i>Register';
+  document.getElementById('emailGroup').style.display = 'block';
+  document.getElementById('email').required = true;
+  document.getElementById('registerToggleContainer').style.display = 'none';
+  document.getElementById('loginToggleContainer').style.display = 'block';
 });
 
-
-document.getElementById('getStartedBtn').addEventListener('click', () => {
-  showPage('trackerPage');
-  
-  // Initialize chart after page is shown
-  setTimeout(() => {
-    if (!adherenceChart) {
-      initializeChart();
-    }
-    loadUserData();
-  }, 100);
+document.getElementById('loginToggle').addEventListener('click', function(e) {
+  e.preventDefault();
+  isRegisterMode = false;
+  document.getElementById('authPrompt').textContent = 'Sign in to your account';
+  document.getElementById('loginSubmitBtn').innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Sign In';
+  document.getElementById('emailGroup').style.display = 'none';
+  document.getElementById('email').required = false;
+  document.getElementById('registerToggleContainer').style.display = 'block';
+  document.getElementById('loginToggleContainer').style.display = 'none';
 });
 
-// Initialize app on DOMContentLoaded
-document.addEventListener('DOMContentLoaded', () => {
-  if (authToken && currentUser.id) {
-    showPage('mainPage');
-    loadUserData(); // Load data if already logged in
-  } else {
-    showPage('loginPage');
-    setAuthMode('login'); // Default to login view
-  }
-  
-  // Set default date filters to last 7 days for history
-  const today = new Date();
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-  document.getElementById('dateTo').value = today.toISOString().split('T')[0];
-  document.getElementById('dateFrom').value = weekAgo.toISOString().split('T')[0];
-});
-
-// Navbar scroll effect
-window.addEventListener('scroll', () => {
-  const nav = document.querySelector('.navigation-wrap');
-  if (nav) { // Check if nav exists (it won't on login page)
-    if (window.scrollY > 10) {
-      nav.classList.add('scroll-on');
-    } else {
-      nav.classList.remove('scroll-on');
-    }
-  }
-});
+// Initialize
+if (authToken && currentUser.id) {
+  goToMainPage();
+} else {
+  showPage('loginPage');
+}
 </script>
-
-<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 </body>
 </html>
+
