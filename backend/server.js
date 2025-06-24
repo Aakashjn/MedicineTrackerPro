@@ -4,16 +4,35 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // Database setup
 const dbPath = path.join(__dirname, 'medicine_tracker.db');
 const db = new sqlite3.Database(dbPath);
 
-// Enhanced CORS configuration for Render deployment
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for development
+  crossOriginEmbedderPolicy: false
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', limiter);
+
+// Enhanced CORS configuration for Railway deployment
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or Postman)
@@ -24,10 +43,11 @@ const corsOptions = {
       'http://localhost:4000',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:4000',
-      // Add your actual Render frontend URL here
       'https://medicinetrackerpro-production.up.railway.app',
-      // This allows any onrender.com subdomain - replace with your specific URL
-      /^https:\/\/.*\.onrender\.com$/
+      /^https:\/\/.*\.railway\.app$/,
+      /^https:\/\/.*\.onrender\.com$/,
+      /^http:\/\/localhost:\d+$/,
+      /^http:\/\/127\.0\.0\.1:\d+$/
     ];
     
     // Check if origin matches any allowed pattern
@@ -44,17 +64,18 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log('Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      callback(null, true); // Allow all origins for now to fix deployment issues
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200 // For legacy browser support
+  optionsSuccessStatus: 200
 };
 
 // Middleware
 app.use(cors(corsOptions));
+app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -148,7 +169,7 @@ const sendResponse = (res, status, data, message = null) => {
 
 const sendError = (res, status, error) => {
   console.error('API Error:', error);
-  res.status(status).json({ error });
+  res.status(status).json({ error: typeof error === 'string' ? error : error.message });
 };
 
 const validateRequiredFields = (data, requiredFields) => {
@@ -216,7 +237,7 @@ const authenticateToken = (req, res, next) => {
 
 // User management utilities
 const hashPassword = async (password) => {
-  return await bcrypt.hash(password, 10);
+  return await bcrypt.hash(password, 12);
 };
 
 const comparePassword = async (password, hashedPassword) => {
@@ -233,6 +254,11 @@ const generateToken = (user) => {
 
 const findUserByEmail = async (email) => {
   const user = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
+  return user || null;
+};
+
+const findUserByUsername = async (username) => {
+  const user = await dbGet('SELECT * FROM users WHERE username = ?', [username]);
   return user || null;
 };
 
@@ -554,6 +580,11 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
     return sendError(res, 400, 'User with this email already exists');
   }
 
+  const existingUsername = await findUserByUsername(username);
+  if (existingUsername) {
+    return sendError(res, 400, 'Username already exists');
+  }
+
   try {
     const user = await createUser({ username, email, password });
     const token = generateToken(user);
@@ -569,31 +600,41 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  console.log('Login attempt:', { email: req.body.email });
+  console.log('Login attempt:', { email: req.body.email, username: req.body.username });
   
-  const missing = validateRequiredFields(req.body, ['email', 'password']);
+  const missing = validateRequiredFields(req.body, ['password']);
   if (missing) {
     return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
   }
 
-  const { email, password } = req.body;
+  const { email, username, password } = req.body;
 
-  const user = await findUserByEmail(email);
+  if (!email && !username) {
+    return sendError(res, 400, 'Email or username is required');
+  }
+
+  let user;
+  if (email) {
+    user = await findUserByEmail(email);
+  } else {
+    user = await findUserByUsername(username);
+  }
+
   if (!user) {
-    console.log('User not found:', email);
+    console.log('User not found:', email || username);
     return sendError(res, 401, 'Invalid credentials');
   }
 
   const isPasswordValid = await comparePassword(password, user.password);
   if (!isPasswordValid) {
-    console.log('Invalid password for user:', email);
+    console.log('Invalid password for user:', email || username);
     return sendError(res, 401, 'Invalid credentials');
   }
 
   const token = generateToken(user);
   const { password: _, ...userWithoutPassword } = user;
   
-  console.log('Login successful:', email);
+  console.log('Login successful:', email || username);
   sendResponse(res, 200, { 
     token, 
     user: userWithoutPassword 
@@ -784,7 +825,7 @@ process.on('SIGTERM', () => {
 // Initialize database and start server
 initializeDatabase();
 
-// Make sure server binds to 0.0.0.0 for Render
+// Make sure server binds to 0.0.0.0 for Railway
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Database: ${dbPath}`);
@@ -798,3 +839,4 @@ server.on('error', (err) => {
 });
 
 module.exports = app;
+
