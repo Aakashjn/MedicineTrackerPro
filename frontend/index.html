@@ -996,9 +996,11 @@ async function loadTodaySchedule() {
               ${schedule.taken ? 'Taken' : 'Pending'}
             </span>
             ${!schedule.taken ? `
-              <button onclick="markAsTaken(${schedule.id})" class="btn btn-success btn-sm btn-enhanced ml-2">
-                <i class="fas fa-check"></i> Mark as Taken
-              </button>
+              <div class="text-right mt-2">
+                <button onclick="markAsTaken(${schedule.id})" class="btn btn-success btn-sm btn-enhanced">
+                  <i class="fas fa-check"></i> Mark as Taken
+                </button>
+              </div>
             ` : ''}
           </div>
         </div>
@@ -1017,6 +1019,9 @@ async function markAsTaken(scheduleId) {
 
     showAlert('addMedicineAlert', 'Medicine marked as taken!', 'success');
     loadTodaySchedule();
+    loadStats();
+    loadUserStats();
+    loadAdherenceChart();
   } catch (error) {
     showAlert('addMedicineAlert', error.message, 'danger');
   }
