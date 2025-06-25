@@ -1,4 +1,5 @@
-﻿module.exports = {
+// backend/.eslintrc.js
+module.exports = {
     "env": {
         "commonjs": true,
         "es2021": true,
@@ -13,7 +14,8 @@
     },
     "rules": {
         "no-console": "off",
-        "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+        // UPDATED: Added 'req|res|next' to argsIgnorePattern
+        "no-unused-vars": ["warn", { "argsIgnorePattern": "^_|req|res|next" }],
         "no-undef": "error"
     }
 };
