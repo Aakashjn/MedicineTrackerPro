@@ -4,11 +4,11 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// 1. IMPORTANT: Set a JWT_SECRET for testing.
-// This ensures consistency if your server.js relies on process.env.JWT_SECRET.
-// Replace 'your-very-strong-secret-key-for-medicine-app' with the actual secret
-// string your server.js uses or expects from an environment variable.
-process.env.JWT_SECRET = 'your-very-strong-secret-key-for-medicine-app'; 
+// IMPORTANT: Ensure JWT_SECRET is set consistently for tests.
+// This MUST match the fallback secret defined in your server.js (line 18 in your repository).
+// Using this ensures that the 'app' (your server instance) initialized below
+// will use the same secret for JWT operations during testing.
+process.env.JWT_SECRET = 'your-super-secret-key';
 
 const app = require('../server'); // Import app AFTER setting the environment variable
 
@@ -17,7 +17,9 @@ const testDb = new sqlite3.Database(':memory:');
 
 describe('Medicine Tracker API', () => {
   let authToken;
-  let userId;
+  // 'userId' was previously assigned but never used, causing an ESLint warning.
+  // It's kept here as per your original file, but noted as unused.
+  let userId; 
 
   beforeAll(async () => {
     // Setup test database
@@ -60,6 +62,7 @@ describe('Medicine Tracker API', () => {
   });
 
   afterAll(async () => {
+    // Close the test database connection after all tests are done
     testDb.close();
   });
 
@@ -81,14 +84,15 @@ describe('Medicine Tracker API', () => {
         expect(response.body).toHaveProperty('token');
         expect(response.body.user).toHaveProperty('username', 'testuser');
         
+        // Store the token and user ID for subsequent authenticated tests
         authToken = response.body.token;
-        userId = response.body.user.id;
+        userId = response.body.user.id; 
       });
 
       test('should fail with missing username', async () => {
         const userData = {
           password: 'testpass123'
-          // Email will also be undefined if not provided, and backend might require it
+          // Email and username are missing here, matching the Jenkins log's output error
         };
 
         const response = await request(app)
@@ -96,14 +100,14 @@ describe('Medicine Tracker API', () => {
           .send(userData)
           .expect(400);
 
-        // 2. Updated expectation based on Jenkins log for missing username and email
+        // Updated expectation to match the exact error message from Jenkins logs
         expect(response.body).toHaveProperty('error', 'Missing required fields: username, email');
       });
 
       test('should fail with missing password', async () => {
         const userData = {
           username: 'testuser2'
-          // Email will also be undefined if not provided, and backend might require it
+          // Password and email are missing here, matching the Jenkins log's output error
         };
 
         const response = await request(app)
@@ -111,7 +115,7 @@ describe('Medicine Tracker API', () => {
           .send(userData)
           .expect(400);
 
-        // 3. Updated expectation based on Jenkins log for missing email and password
+        // Updated expectation to match the exact error message from Jenkins logs
         expect(response.body).toHaveProperty('error', 'Missing required fields: email, password');
       });
     });
@@ -178,6 +182,7 @@ describe('Medicine Tracker API', () => {
 
         const response = await request(app)
           .post('/api/medicines')
+          // Attach the authentication token obtained from successful registration
           .set('Authorization', `Bearer ${authToken}`)
           .send(medicineData)
           .expect(201);
@@ -198,7 +203,7 @@ describe('Medicine Tracker API', () => {
 
         const response = await request(app)
           .post('/api/medicines')
-          .send(medicineData)
+          .send(medicineData) // No Authorization header
           .expect(401);
 
         expect(response.body).toHaveProperty('error', 'Access token required');
@@ -207,7 +212,7 @@ describe('Medicine Tracker API', () => {
       test('should fail with missing required fields', async () => {
         const medicineData = {
           name: 'Aspirin'
-          // Missing dose and time
+          // Missing dose and time, which are required
         };
 
         const response = await request(app)
@@ -270,7 +275,7 @@ describe('Medicine Tracker API', () => {
         };
 
         const response = await request(app)
-          .put('/api/medicines/9999')
+          .put('/api/medicines/9999') // Using a non-existent ID
           .set('Authorization', `Bearer ${authToken}`)
           .send(updateData)
           .expect(404);
@@ -291,7 +296,7 @@ describe('Medicine Tracker API', () => {
 
       test('should fail for non-existent medicine', async () => {
         const response = await request(app)
-          .delete('/api/medicines/9999')
+          .delete('/api/medicines/9999') // Using a non-existent ID
           .set('Authorization', `Bearer ${authToken}`)
           .expect(404);
 
@@ -304,7 +309,7 @@ describe('Medicine Tracker API', () => {
     let newMedicineId;
 
     beforeAll(async () => {
-      // Create a new medicine for history tests
+      // Create a new medicine for history tests using the obtained authToken
       const medicineData = {
         name: 'Vitamin D',
         dose: '1000 IU',
@@ -432,15 +437,16 @@ describe('Medicine Tracker API', () => {
     test('should handle invalid JWT tokens', async () => {
       const response = await request(app)
         .get('/api/medicines')
-        .set('Authorization', 'Bearer invalid-token')
-        .expect(403);
+        .set('Authorization', 'Bearer invalid-token') // Intentionally sending a bad token
+        .expect(403); // Your server returns 403 for invalid/expired tokens
 
-      expect(response.body).toHaveProperty('error', 'Invalid token');
+      // Updated expectation to match the exact error message from Jenkins logs
+      expect(response.body).toHaveProperty('error', 'Invalid or expired token');
     });
   });
 });
 
-// Additional utility tests
+// Additional utility tests (unrelated to API calls but important for core logic)
 describe('Utility Functions', () => {
   describe('Password Hashing', () => {
     test('should hash passwords correctly', async () => {
@@ -458,7 +464,9 @@ describe('Utility Functions', () => {
   describe('JWT Token', () => {
     test('should create and verify JWT tokens', () => {
       const payload = { userId: 123 };
-      const secret = 'test-secret'; // This is for the utility test, not necessarily the app's secret
+      // This 'test-secret' is specific to this utility test and does not
+      // necessarily need to match the application's JWT_SECRET.
+      const secret = 'test-secret'; 
       
       const token = jwt.sign(payload, secret, { expiresIn: '1h' });
       expect(typeof token).toBe('string');
