@@ -17,7 +17,7 @@ describe('Medicine Tracker API', () => {
   // Declare authToken and userId at the top-level of this describe block
   // so they are accessible across all nested describe blocks.
   let authToken;
-  let userId; // userId is assigned but not explicitly used in tests, acknowledged previously.
+  let userId; // Declared for consistency, but not explicitly used in assertions.
 
   // Use this for a medicine created in Medicine Management tests
   let managedMedicineId;
@@ -96,7 +96,7 @@ describe('Medicine Tracker API', () => {
       test('should fail with missing username', async () => {
         const userData = {
           password: 'testpass123'
-          // Email and username are missing here, matching the Jenkins log's output error
+          // Email and username are missing here
         };
 
         const response = await request(app)
@@ -111,7 +111,7 @@ describe('Medicine Tracker API', () => {
       test('should fail with missing password', async () => {
         const userData = {
           username: 'testuser2'
-          // Password and email are missing here, matching the Jenkins log's output error
+          // Password and email are missing here
         };
 
         const response = await request(app)
@@ -172,8 +172,6 @@ describe('Medicine Tracker API', () => {
   });
 
   describe('Medicine Management', () => {
-    // managedMedicineId is declared at the top-level describe block
-
     test('should create a new medicine', async () => {
       const medicineData = {
         name: 'Aspirin',
