@@ -266,22 +266,66 @@ const getMedicinesByUserId = async (userId) => {
   );
 };
 
+// In server.js, find the createMedicine function
 const createMedicine = async (medicineData, userId) => {
   const { name, dosage, frequency, start_date, end_date, notes } = medicineData;
-  
+
   const result = await dbRun(
-    `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes) 
+    `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [userId, name, dosage, frequency, start_date, end_date, notes]
   );
-  
+
+  const newMedicineId = result.id;
+
+  // --- NEW LOGIC STARTS HERE: Generate initial schedules based on frequency ---
+  const schedulesToCreate = [];
+  const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
+
+  switch (frequency) {
+    case 'daily':
+      // For daily, create one schedule for today at 9 AM
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
+      break;
+    case 'twice-daily':
+      // For twice-daily, create two schedules for today at 9 AM and 6 PM
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '18:00', scheduled_date: today });
+      break;
+    case 'three-times-daily':
+      // For three-times-daily, create three schedules for today at 8 AM, 2 PM, and 8 PM
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '08:00', scheduled_date: today });
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '14:00', scheduled_date: today });
+      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '20:00', scheduled_date: today });
+      break;
+    case 'weekly':
+      // For weekly, create one schedule for today if the medicine's start date is today or in the past
+      // (Note: For full weekly recurrence, you'd need more advanced scheduling logic)
+      if (new Date(start_date) <= new Date(today)) {
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
+      }
+      break;
+    case 'as-needed':
+      // No automatic schedule generation for 'as-needed' medicines
+      break;
+    default:
+      console.warn(`Unknown frequency: ${frequency} for medicine ${newMedicineId}. No schedules generated.`);
+  }
+
+  // Insert all generated schedules into the database
+  for (const scheduleData of schedulesToCreate) {
+    await createSchedule(scheduleData); // Reuse your existing createSchedule function
+  }
+  // --- NEW LOGIC ENDS HERE ---
+
   return {
-    id: result.id,
+    id: newMedicineId,
     user_id: userId,
     ...medicineData,
     created_at: new Date().toISOString()
   };
 };
+
 
 const updateMedicine = async (medicineId, updateData, userId) => {
   const fields = [];
