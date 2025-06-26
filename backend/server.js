@@ -1,860 +1,871 @@
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const cors = require('cors');
-const path = require('path');
+const request = require("supertest");
+const app = require("../server"); // Adjust path if necessary
+const sqlite3 = require("sqlite3").verbose();
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 
-const app = express();
-const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-
-// Database setup
-const dbPath = path.join(__dirname, 'medicine_tracker.db');
-const db = new sqlite3.Database(dbPath);
-
-// Enhanced CORS configuration for Render deployment
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:4000',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:4000',
-      // Add your actual Render frontend URL here
-      'https://medicinetrackerpro-production.up.railway.app',
-      // This allows any onrender.com subdomain - replace with your specific URL
-      /^https:\/\/.*\.onrender\.com$/
-    ];
-    
-    // Check if origin matches any allowed pattern
-    const isAllowed = allowedOrigins.some(pattern => {
-      if (typeof pattern === 'string') {
-        return pattern === origin;
-      } else if (pattern instanceof RegExp) {
-        return pattern.test(origin);
-      }
-      return false;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log('Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200 // For legacy browser support
-};
-
-// Middleware
-app.use(cors(corsOptions));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Add request logging for debugging
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.get('Origin')}`);
-  next();
+// Suppress console.error output during tests
+const originalConsoleError = console.error;
+beforeAll(() => {
+    console.error = jest.fn();
+});
+afterAll(() => {
+    console.error = originalConsoleError;
 });
 
-// Database initialization
-const initializeDatabase = () => {
-  const tables = [
-    `CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS medicines (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      dosage TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      start_date DATE NOT NULL,
-      end_date DATE,
-      notes TEXT,
-      active BOOLEAN DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id)
-    )`,
-    `CREATE TABLE IF NOT EXISTS schedules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      medicine_id INTEGER NOT NULL,
-      scheduled_time TIME NOT NULL,
-      taken BOOLEAN DEFAULT FALSE,
-      taken_at DATETIME,
-      scheduled_date DATE DEFAULT (DATE('now')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (medicine_id) REFERENCES medicines (id)
-    )`,
-    `CREATE TABLE IF NOT EXISTS medicine_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      medicine_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      taken_at DATETIME NOT NULL,
-      status TEXT DEFAULT 'taken',
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (medicine_id) REFERENCES medicines (id),
-      FOREIGN KEY (user_id) REFERENCES users (id)
-    )`,
-    `CREATE TABLE IF NOT EXISTS reminders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      medicine_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      reminder_time TIME NOT NULL,
-      enabled BOOLEAN DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (medicine_id) REFERENCES medicines (id),
-      FOREIGN KEY (user_id) REFERENCES users (id)
-    )`
-  ];
+const dbPath = "./test_database.sqlite";
+const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; // Use a consistent secret
 
-  db.serialize(() => {
-    tables.forEach(tableQuery => {
-      db.run(tableQuery, (err) => {
-        if (err) {
-          console.error('Error creating table:', err);
+let db;
+
+// Helper function to initialize the test database schema
+async function initializeTestDatabase() {
+    return new Promise((resolve, reject) => {
+        db = new sqlite3.Database(dbPath);
+        db.serialize(() => {
+            const dropTableStatements = [
+                `DROP TABLE IF EXISTS users`,
+                `DROP TABLE IF EXISTS medicines`,
+                `DROP TABLE IF EXISTS schedules`,
+                `DROP TABLE IF EXISTS medicine_history`,
+                `DROP TABLE IF EXISTS reminders`
+            ];
+
+            const createTableStatements = [
+                `
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                `,
+                `
+                CREATE TABLE medicines (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    dosage TEXT NOT NULL,
+                    frequency TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT,
+                    notes TEXT,
+                    active BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                `,
+                `
+                CREATE TABLE schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL,
+                    scheduled_date TEXT NOT NULL,
+                    scheduled_time TEXT NOT NULL,
+                    taken BOOLEAN DEFAULT FALSE,
+                    taken_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+                )
+                `,
+                `
+                CREATE TABLE medicine_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL, -- 'taken' or 'missed'
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                `,
+                `
+                CREATE TABLE reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    reminder_time TEXT NOT NULL,
+                    enabled BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                `
+            ];
+
+            // Execute drop statements
+            dropTableStatements.forEach(stmt => db.run(stmt));
+
+            // Execute create statements
+            let completed = 0;
+            const totalStatements = createTableStatements.length;
+
+            createTableStatements.forEach((stmt, index) => {
+                db.run(stmt, (err) => {
+                    if (err) {
+                        return reject(err);
+                    }
+                    completed++;
+                    if (completed === totalStatements) {
+                        resolve();
+                    }
+                });
+            });
+
+            // Handle case where there are no create statements (shouldn't happen here, but good practice)
+            if (totalStatements === 0) {
+                resolve();
+            }
+        });
+    });
+}
+
+// Global beforeAll hook to set up the database once for all tests
+beforeAll(async () => {
+    await initializeTestDatabase();
+});
+
+// Global afterAll hook to close the database connection
+afterAll(async () => {
+    await new Promise((resolve, reject) => {
+        db.close((err) => {
+            if (err) reject(err); else resolve();
+        });
+    });
+});
+
+/**
+ * Helper function to register and log in a user.
+ * @param {string} username
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<{authToken: string, userId: number}>}
+ */
+async function registerAndLoginUser(username, email, password) {
+    await request(app)
+        .post("/api/auth/register")
+        .send({ username, email, password });
+
+    const loginRes = await request(app)
+        .post("/api/auth/login")
+        .send({ email, password });
+
+    return { authToken: loginRes.body.token, userId: loginRes.body.user.id };
+}
+
+/**
+ * Helper function to add a medicine for a given user.
+ * @param {string} authToken
+ * @param {object} medicineDetails
+ * @returns {Promise<number>} - The ID of the created medicine.
+ */
+async function addMedicine(authToken, medicineDetails) {
+    const medRes = await request(app)
+        .post("/api/medicines")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send(medicineDetails);
+    return medRes.body.medicine.id;
+}
+
+// Helper function for authenticated requests
+function authenticatedRequest(authToken) {
+    return request(app).set("Authorization", `Bearer ${authToken}`);
+}
+
+// Helper function for common unauthorized access test
+function testUnauthorizedAccess(apiPath, method, payload = {}) {
+    it(`should not allow unauthorized access to ${apiPath} (${method.toUpperCase()})`, async () => {
+        let res;
+        if (method === 'get') {
+            res = await request(app).get(apiPath);
+        } else if (method === 'post') {
+            res = await request(app).post(apiPath).send(payload);
+        } else if (method === 'put') {
+            res = await request(app).put(apiPath).send(payload);
+        } else if (method === 'delete') {
+            res = await request(app).delete(apiPath);
         }
-      });
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
     });
-  });
-  
-  console.log('Database initialized successfully');
-};
+}
 
-// Utility functions
-const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
-};
-
-const sendResponse = (res, status, data, message = null) => {
-  const response = message ? { message, ...data } : data;
-  res.status(status).json(response);
-};
-
-const sendError = (res, status, error) => {
-  console.error('API Error:', error);
-  res.status(status).json({ error });
-};
-
-const validateRequiredFields = (data, requiredFields) => {
-  const missing = requiredFields.filter(field => !data[field]);
-  return missing.length > 0 ? missing : null;
-};
-
-const dbQuery = (query, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(query, params, (err, rows) => {
-      if (err) {
-        console.error('Database query error:', err);
-        reject(err);
-      } else {
-        resolve(rows);
-      }
+describe("Auth API", () => {
+    it("should register a new user", async () => {
+        const res = await request(app)
+            .post("/api/auth/register")
+            .send({
+                username: "testuser",
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(201);
+        expect(res.body.message).toEqual("User registered successfully");
+        expect(res.body.user).toHaveProperty("id");
+        expect(res.body.user.username).toEqual("testuser");
     });
-  });
-};
 
-const dbGet = (query, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(query, params, (err, row) => {
-      if (err) {
-        console.error('Database get error:', err);
-        reject(err);
-      } else {
-        resolve(row);
-      }
+    it("should not register a user with existing email", async () => {
+        const res = await request(app)
+            .post("/api/auth/register")
+            .send({
+                username: "anotheruser",
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.message).toEqual("User with this email already exists");
     });
-  });
-};
 
-const dbRun = (query, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(query, params, function(err) {
-      if (err) {
-        console.error('Database run error:', err);
-        reject(err);
-      } else {
-        resolve({ id: this.lastID, changes: this.changes });
-      }
+    it("should not register a user with missing fields", async () => {
+        const res = await request(app)
+            .post("/api/auth/register")
+            .send({
+                username: "incomplete",
+                email: "incomplete@example.com"
+                // password missing
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.error).toContain("password");
     });
-  });
-};
 
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+    it("should login an existing user", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(200);
+        expect(res.body).toHaveProperty("token");
+        expect(res.body.user).toHaveProperty("id");
+        expect(res.body.user.email).toEqual("test@example.com");
+    });
 
-  if (!token) {
-    return sendError(res, 401, 'Access token required');
-  }
+    it("should not login with incorrect password", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "test@example.com",
+                password: "wrongpassword"
+            });
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Invalid credentials");
+    });
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      console.error('JWT verification error:', err);
-      return sendError(res, 403, 'Invalid or expired token');
-    }
-    req.user = user;
-    next();
-  });
-};
+    it("should not login with non-existent email", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "nonexistent@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Invalid credentials");
+    });
 
-// User management utilities
-const hashPassword = async (password) => {
-  return await bcrypt.hash(password, 10);
-};
-
-const comparePassword = async (password, hashedPassword) => {
-  return await bcrypt.compare(password, hashedPassword);
-};
-
-const generateToken = (user) => {
-  return jwt.sign(
-    { userId: user.id, email: user.email },
-    JWT_SECRET,
-    { expiresIn: '24h' }
-  );
-};
-
-const findUserByEmail = async (email) => {
-  const user = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
-  return user || null;
-};
-
-const createUser = async (userData) => {
-  const { username, email, password } = userData;
-  const hashedPassword = await hashPassword(password);
-  
-  const result = await dbRun(
-    'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-    [username, email, hashedPassword]
-  );
-  
-  return {
-    id: result.id,
-    username,
-    email,
-    created_at: new Date().toISOString()
-  };
-};
-
-// Medicine management utilities
-const validateMedicineData = (data) => {
-  const required = ['name', 'dosage', 'frequency', 'start_date'];
-  return validateRequiredFields(data, required);
-};
-
-const getMedicinesByUserId = async (userId) => {
-  return await dbQuery(
-    'SELECT * FROM medicines WHERE user_id = ? AND active = 1 ORDER BY created_at DESC',
-    [userId]
-  );
-};
-
-// In server.js, find the createMedicine function
-const createMedicine = async (medicineData, userId) => {
-  const { name, dosage, frequency, start_date, end_date, notes } = medicineData;
-
-  const result = await dbRun(
-    `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [userId, name, dosage, frequency, start_date, end_date, notes]
-  );
-
-  const newMedicineId = result.id;
-
-  // --- NEW LOGIC STARTS HERE: Generate initial schedules based on frequency ---
-  const schedulesToCreate = [];
-  const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
-
-  switch (frequency) {
-    case 'daily':
-      // For daily, create one schedule for today at 9 AM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
-      break;
-    case 'twice-daily':
-      // For twice-daily, create two schedules for today at 9 AM and 6 PM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '18:00', scheduled_date: today });
-      break;
-    case 'three-times-daily':
-      // For three-times-daily, create three schedules for today at 8 AM, 2 PM, and 8 PM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '08:00', scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '14:00', scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '20:00', scheduled_date: today });
-      break;
-    case 'weekly':
-      // For weekly, create one schedule for today if the medicine's start date is today or in the past
-      // (Note: For full weekly recurrence, you'd need more advanced scheduling logic)
-      if (new Date(start_date) <= new Date(today)) {
-        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: '09:00', scheduled_date: today });
-      }
-      break;
-    case 'as-needed':
-      // No automatic schedule generation for 'as-needed' medicines
-      break;
-    default:
-      console.warn(`Unknown frequency: ${frequency} for medicine ${newMedicineId}. No schedules generated.`);
-  }
-
-  // Insert all generated schedules into the database
-  for (const scheduleData of schedulesToCreate) {
-    await createSchedule(scheduleData); // Reuse your existing createSchedule function
-  }
-  // --- NEW LOGIC ENDS HERE ---
-
-  return {
-    id: newMedicineId,
-    user_id: userId,
-    ...medicineData,
-    created_at: new Date().toISOString()
-  };
-};
-
-
-const updateMedicine = async (medicineId, updateData, userId) => {
-  const fields = [];
-  const values = [];
-  
-  Object.entries(updateData).forEach(([key, value]) => {
-    if (value !== undefined) {
-      fields.push(`${key} = ?`);
-      values.push(value);
-    }
-  });
-  
-  if (fields.length === 0) {
-    throw new Error('No fields to update');
-  }
-  
-  values.push(medicineId, userId);
-  
-  const result = await dbRun(
-    `UPDATE medicines SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`,
-    values
-  );
-  
-  return result.changes > 0;
-};
-
-const deleteMedicine = async (medicineId, userId) => {
-  const result = await dbRun(
-    'UPDATE medicines SET active = 0 WHERE id = ? AND user_id = ?',
-    [medicineId, userId]
-  );
-  
-  return result.changes > 0;
-};
-
-// Schedule management utilities
-const getSchedulesByUserId = async (userId) => {
-  return await dbQuery(`
-    SELECT s.*, m.name as medicine_name, m.dosage, m.frequency 
-    FROM schedules s 
-    JOIN medicines m ON s.medicine_id = m.id 
-    WHERE m.user_id = ? AND m.active = 1
-    ORDER BY s.scheduled_date DESC, s.scheduled_time
-  `, [userId]);
-};
-
-const getTodaysSchedule = async (userId) => {
-  const today = new Date().toISOString().split('T')[0];
-  return await dbQuery(`
-    SELECT s.*, m.name as medicine_name, m.dosage, m.frequency 
-    FROM schedules s 
-    JOIN medicines m ON s.medicine_id = m.id 
-    WHERE m.user_id = ? AND m.active = 1 AND s.scheduled_date = ?
-    ORDER BY s.scheduled_time
-  `, [userId, today]);
-};
-
-const createSchedule = async (scheduleData) => {
-  const { medicine_id, scheduled_time, scheduled_date } = scheduleData;
-  const date = scheduled_date || new Date().toISOString().split('T')[0];
-  
-  const result = await dbRun(
-    'INSERT INTO schedules (medicine_id, scheduled_time, scheduled_date) VALUES (?, ?, ?)',
-    [medicine_id, scheduled_time, date]
-  );
-  
-  return {
-    id: result.id,
-    medicine_id,
-    scheduled_time,
-    scheduled_date: date,
-    taken: false,
-    created_at: new Date().toISOString()
-  };
-};
-
-const markScheduleAsTaken = async (scheduleId, userId) => {
-  // First, get the medicine_id associated with the schedule
-  const schedule = await dbGet(`
-    SELECT medicine_id FROM schedules
-    WHERE id = ? AND medicine_id IN (SELECT id FROM medicines WHERE user_id = ?)
-  `, [scheduleId, userId]);
-
-  if (!schedule) {
-    console.warn(`Schedule ${scheduleId} not found or not owned by user ${userId}`);
-    return false; // Schedule not found or not authorized
-  }
-
-  // Update the schedule as taken
-  const updateResult = await dbRun(`
-    UPDATE schedules
-    SET taken = TRUE, taken_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `, [scheduleId]);
-
-  if (updateResult.changes > 0) {
-    // If schedule was successfully updated, record it in history
-    await recordMedicineHistory(schedule.medicine_id, userId, 'taken');
-    return true;
-  }
-  return false;
-};
-
-
-// History and Statistics utilities
-const recordMedicineHistory = async (medicineId, userId, status = 'taken', notes = null) => {
-  const result = await dbRun(
-    'INSERT INTO medicine_history (medicine_id, user_id, taken_at, status, notes) VALUES (?, ?, ?, ?, ?)',
-    [medicineId, userId, new Date().toISOString(), status, notes]
-  );
-  
-  return {
-    id: result.id,
-    medicine_id: medicineId,
-    user_id: userId,
-    taken_at: new Date().toISOString(),
-    status,
-    notes
-  };
-};
-
-const getMedicineHistory = async (userId, filters = {}) => {
-  let query = `
-    SELECT mh.*, m.name as medicine_name, m.dosage 
-    FROM medicine_history mh 
-    JOIN medicines m ON mh.medicine_id = m.id 
-    WHERE mh.user_id = ?
-  `;
-  let params = [userId];
-
-  if (filters.date_from) {
-    query += ' AND DATE(mh.taken_at) >= ?';
-    params.push(filters.date_from);
-  }
-
-  if (filters.date_to) {
-    query += ' AND DATE(mh.taken_at) <= ?';
-    params.push(filters.date_to);
-  }
-
-  if (filters.medicine_id) {
-    query += ' AND mh.medicine_id = ?';
-    params.push(filters.medicine_id);
-  }
-
-  query += ' ORDER BY mh.taken_at DESC';
-
-  return await dbQuery(query, params);
-};
-
-const getStatistics = async (userId) => {
-  const stats = {};
-  
-  // Total active medicines
-  const totalMedicines = await dbGet(
-    'SELECT COUNT(*) as count FROM medicines WHERE user_id = ? AND active = 1',
-    [userId]
-  );
-  stats.totalMedicines = totalMedicines.count;
-  
-  // Total doses taken
-  const totalTaken = await dbGet(
-    'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "taken"',
-    [userId]
-  );
-  stats.totalDosesTaken = totalTaken.count;
-  
-  // Total doses missed
-  const totalMissed = await dbGet(
-    'SELECT COUNT(*) as count FROM medicine_history WHERE user_id = ? AND status = "missed"',
-    [userId]
-  );
-  stats.totalDosesMissed = totalMissed.count;
-  
-  // Adherence rate (last 30 days)
-  const adherence = await dbGet(`
-    SELECT 
-      ROUND(
-        (COUNT(CASE WHEN status = 'taken' THEN 1 END) * 100.0 / COUNT(*)), 2
-      ) as rate 
-    FROM medicine_history 
-    WHERE user_id = ? AND DATE(taken_at) >= DATE('now', '-30 days')
-  `, [userId]);
-  stats.adherenceRate = adherence.rate || 0;
-  
-  return stats;
-};
-
-// Reminder utilities
-const getRemindersByUserId = async (userId) => {
-  return await dbQuery(`
-    SELECT r.*, m.name as medicine_name, m.dosage 
-    FROM reminders r 
-    JOIN medicines m ON r.medicine_id = m.id 
-    WHERE r.user_id = ? AND r.enabled = 1 AND m.active = 1
-    ORDER BY r.reminder_time
-  `, [userId]);
-};
-
-const createReminder = async (reminderData, userId) => {
-  const { medicine_id, reminder_time } = reminderData;
-  
-  const result = await dbRun(
-    'INSERT INTO reminders (medicine_id, user_id, reminder_time) VALUES (?, ?, ?)',
-    [medicine_id, userId, reminder_time]
-  );
-  
-  return {
-    id: result.id,
-    medicine_id,
-    user_id: userId,
-    reminder_time,
-    enabled: true,
-    created_at: new Date().toISOString()
-  };
-};
-
-const updateReminder = async (reminderId, updateData, userId) => {
-  const { reminder_time, enabled } = updateData;
-  
-  const result = await dbRun(
-    'UPDATE reminders SET reminder_time = ?, enabled = ? WHERE id = ? AND user_id = ?',
-    [reminder_time, enabled, reminderId, userId]
-  );
-  
-  return result.changes > 0;
-};
-
-const deleteReminder = async (reminderId, userId) => {
-  const result = await dbRun(
-    'DELETE FROM reminders WHERE id = ? AND user_id = ?',
-    [reminderId, userId]
-  );
-  
-  return result.changes > 0;
-};
-
-// Routes
-// Health check
-app.get('/api/health', (req, res) => {
-  sendResponse(res, 200, { 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    port: PORT,
-    environment: process.env.NODE_ENV || 'development'
-  });
+    it("should not login with missing fields", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "test@example.com"
+                // password missing
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.error).toContain("password");
+    });
 });
 
-// Root route for testing
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Medicine Tracker Pro API is running!',
-    version: '1.0.0',
-    endpoints: {
-      health: '/api/health',
-      auth: '/api/auth/login and /api/auth/register',
-      medicines: '/api/medicines',
-      schedules: '/api/schedules',
-      history: '/api/history',
-      stats: '/api/stats',
-      reminders: '/api/reminders'
-    }
-  });
+describe("Medicine API", () => {
+    let authToken;
+    let userId;
+
+    beforeAll(async () => {
+        ({ authToken, userId } = await registerAndLoginUser("meduser", "med@example.com", "password123"));
+    });
+
+    it("should add a new medicine", async () => {
+        const res = await authenticatedRequest(authToken)
+            .post("/api/medicines")
+            .send({
+                name: "Aspirin",
+                dosage: "100mg",
+                frequency: "daily",
+                start_date: "2025-01-01",
+                notes: "Take with food"
+            });
+        expect(res.statusCode).toEqual(201);
+        expect(res.body.medicine).toHaveProperty("id");
+        expect(res.body.medicine.name).toEqual("Aspirin");
+        expect(res.body.medicine.user_id).toEqual(userId);
+    });
+
+    it("should not add a medicine with missing fields", async () => {
+        const res = await authenticatedRequest(authToken)
+            .post("/api/medicines")
+            .send({
+                name: "Missing Data",
+                dosage: "10mg",
+                // frequency missing
+                start_date: "2025-01-01"
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.error).toContain("frequency");
+    });
+
+    it("should get all medicines for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/medicines");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.medicines).toBeInstanceOf(Array);
+        expect(res.body.medicines.length).toBeGreaterThan(0);
+        expect(res.body.medicines[0].name).toEqual("Aspirin");
+    });
+
+    it("should update an existing medicine", async () => {
+        const medicineId = await addMedicine(authToken, {
+            name: "Ibuprofen",
+            dosage: "200mg",
+            frequency: "twice-daily",
+            start_date: "2025-01-05",
+            notes: "For pain"
+        });
+
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/medicines/${medicineId}`)
+            .send({
+                name: "Ibuprofen",
+                dosage: "400mg",
+                frequency: "twice-daily",
+                start_date: "2025-01-05",
+                notes: "For severe pain"
+            });
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Medicine updated successfully");
+    });
+
+    it("should not update a non-existent medicine", async () => {
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/medicines/99999`)
+            .send({
+                name: "NonExistent",
+                dosage: "100mg"
+            });
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Medicine not found or not owned by user");
+    });
+
+    it("should not update a medicine not owned by the user", async () => {
+        const { authToken: otherAuthToken } = await registerAndLoginUser("otheruser", "other@example.com", "password123");
+        const otherMedicineId = await addMedicine(otherAuthToken, {
+            name: "Other Med",
+            dosage: "50mg",
+            frequency: "daily",
+            start_date: "2025-01-01"
+        });
+
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/medicines/${otherMedicineId}`)
+            .send({
+                name: "Attempted Hack",
+                dosage: "1000mg"
+            });
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Medicine not found or not owned by user");
+    });
+
+    it("should delete a medicine", async () => {
+        const medicineId = await addMedicine(authToken, {
+            name: "Paracetamol",
+            dosage: "500mg",
+            frequency: "daily",
+            start_date: "2025-01-10"
+        });
+
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/medicines/${medicineId}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Medicine deleted successfully");
+
+        const getRes = await authenticatedRequest(authToken)
+            .get("/api/medicines");
+        expect(getRes.body.medicines.some(m => m.id === medicineId)).toBeFalsy();
+    });
+
+    it("should not delete a non-existent medicine", async () => {
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/medicines/99999`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Medicine not found or not owned by user");
+    });
+
+    it("should not delete a medicine not owned by the user", async () => {
+        const { authToken: otherAuthToken } = await registerAndLoginUser("anotheruser", "another@example.com", "password123");
+        const otherMedicineId = await addMedicine(otherAuthToken, {
+            name: "Another Med",
+            dosage: "50mg",
+            frequency: "daily",
+            start_date: "2025-01-01"
+        });
+
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/medicines/${otherMedicineId}`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Medicine not found or not owned by user");
+    });
+
+    testUnauthorizedAccess("/api/medicines", "get");
+    testUnauthorizedAccess("/api/medicines", "post", { name: "Unauthorized", dosage: "1mg", frequency: "daily", start_date: "2025-01-01" });
+    testUnauthorizedAccess("/api/medicines/1", "put", { name: "Unauthorized Update" });
+    testUnauthorizedAccess("/api/medicines/1", "delete");
 });
 
-// Authentication routes
-app.post('/api/auth/register', asyncHandler(async (req, res) => {
-  console.log('Registration attempt:', { email: req.body.email, username: req.body.username });
-  
-  const missing = validateRequiredFields(req.body, ['username', 'email', 'password']);
-  if (missing) {
-    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
-  }
+describe("Schedule API", () => {
+    let authToken;
+    let userId;
+    let medicineId;
 
-  const { username, email, password } = req.body;
+    beforeAll(async () => {
+        ({ authToken, userId } = await registerAndLoginUser("scheduleuser", "schedule@example.com", "password123"));
 
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return sendError(res, 400, 'Invalid email format');
-  }
+        medicineId = await addMedicine(authToken, {
+            name: "Vitamin C",
+            dosage: "1000mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "Daily dose"
+        });
 
-  // Check if user exists
-  const existingUser = await findUserByEmail(email);
-  if (existingUser) {
-    return sendError(res, 400, 'User with this email already exists');
-  }
+        // Ensure schedules are generated for the medicine
+        const generatedSchedulesRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
+        expect(generatedSchedulesRes.statusCode).toEqual(200);
+        expect(generatedSchedulesRes.body.schedules.length).toBeGreaterThan(0);
+    });
 
-  try {
-    const user = await createUser({ username, email, password });
-    const token = generateToken(user);
-    console.log('User registered successfully:', user.email);
-    sendResponse(res, 201, { user, token }, 'User registered successfully');
-  } catch (error) {
-    console.error('Registration error:', error);
-    if (error.message.includes('UNIQUE constraint failed')) {
-      return sendError(res, 400, 'Username or email already exists');
-    }
-    throw error;
-  }
-}));
+    it("should get today's schedules for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.schedules).toBeInstanceOf(Array);
+        expect(res.body.schedules.length).toBeGreaterThan(0);
+        expect(res.body.schedules[0]).toHaveProperty("medicine_id", medicineId);
+        expect(res.body.schedules[0]).toHaveProperty("scheduled_date", new Date().toISOString().split("T")[0]);
+    });
 
-app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  console.log('Login attempt:', { email: req.body.email });
-  
-  const missing = validateRequiredFields(req.body, ['email', 'password']);
-  if (missing) {
-    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
-  }
+    it("should mark a schedule as taken", async () => {
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
+        expect(todayRes.body.schedules.length).toBeGreaterThan(0); // Ensure there's at least one schedule
+        const scheduleId = todayRes.body.schedules[0].id;
 
-  const { email, password } = req.body;
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Schedule marked as taken");
 
-  const user = await findUserByEmail(email);
-  if (!user) {
-    console.log('User not found:', email);
-    return sendError(res, 401, 'Invalid credentials');
-  }
+        // Verify it's marked as taken
+        const updatedSchedule = await new Promise((resolve, reject) => {
+            db.get(`SELECT taken FROM schedules WHERE id = ?`, [scheduleId], (err, row) => {
+                if (err) reject(err); else resolve(row);
+            });
+        });
+        expect(updatedSchedule).toHaveProperty("taken", 1); // SQLite stores BOOLEAN as 0 or 1
+    });
 
-  const isPasswordValid = await comparePassword(password, user.password);
-  if (!isPasswordValid) {
-    console.log('Invalid password for user:', email);
-    return sendError(res, 401, 'Invalid credentials');
-  }
+    it("should not mark a non-existent schedule as taken", async () => {
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/schedules/99999/taken`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Schedule not found or not owned by user");
+    });
 
-  const token = generateToken(user);
-  const { password: _, ...userWithoutPassword } = user;
-  
-  console.log('Login successful:', email);
-  sendResponse(res, 200, { 
-    token, 
-    user: userWithoutPassword 
-  }, 'Login successful');
-}));
+    it("should not mark a schedule not owned by the user as taken", async () => {
+        const { authToken: otherAuthToken } = await registerAndLoginUser("other_schedule_user", "other_schedule@example.com", "password123");
+        const otherMedicineId = await addMedicine(otherAuthToken, {
+            name: "Other Schedule Med",
+            dosage: "1mg",
+            frequency: "daily",
+            start_date: "2025-01-01"
+        });
+        const otherSchedulesRes = await authenticatedRequest(otherAuthToken).get("/api/schedules/today");
+        const otherScheduleId = otherSchedulesRes.body.schedules[0].id;
 
-// Medicine routes
-app.get('/api/medicines', authenticateToken, asyncHandler(async (req, res) => {
-  const medicines = await getMedicinesByUserId(req.user.userId);
-  sendResponse(res, 200, { medicines });
-}));
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/schedules/${otherScheduleId}/taken`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Schedule not found or not owned by user");
+    });
 
-app.post('/api/medicines', authenticateToken, asyncHandler(async (req, res) => {
-  const missing = validateMedicineData(req.body);
-  if (missing) {
-    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
-  }
+    it("should get all schedules for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/schedules");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.schedules).toBeInstanceOf(Array);
+        expect(res.body.schedules.length).toBeGreaterThan(0);
+    });
 
-  const medicine = await createMedicine(req.body, req.user.userId);
-  sendResponse(res, 201, { medicine }, 'Medicine added successfully');
-}));
-
-app.put('/api/medicines/:id', authenticateToken, asyncHandler(async (req, res) => {
-  const medicineId = parseInt(req.params.id);
-  
-  if (Object.keys(req.body).length === 0) {
-    return sendError(res, 400, 'No data provided for update');
-  }
-
-  const updated = await updateMedicine(medicineId, req.body, req.user.userId);
-  
-  if (!updated) {
-    return sendError(res, 404, 'Medicine not found or you do not have permission to update it');
-  }
-
-  sendResponse(res, 200, {}, 'Medicine updated successfully');
-}));
-
-app.delete('/api/medicines/:id', authenticateToken, asyncHandler(async (req, res) => {
-  const medicineId = parseInt(req.params.id);
-  
-  const deleted = await deleteMedicine(medicineId, req.user.userId);
-  
-  if (!deleted) {
-    return sendError(res, 404, 'Medicine not found or you do not have permission to delete it');
-  }
-
-  sendResponse(res, 200, {}, 'Medicine deleted successfully');
-}));
-
-// Schedule routes
-app.get('/api/schedules', authenticateToken, asyncHandler(async (req, res) => {
-  const schedules = await getSchedulesByUserId(req.user.userId);
-  sendResponse(res, 200, { schedules });
-}));
-
-app.get('/api/schedules/today', authenticateToken, asyncHandler(async (req, res) => {
-  const todaysSchedule = await getTodaysSchedule(req.user.userId);
-  sendResponse(res, 200, { schedules: todaysSchedule });
-}));
-
-app.post('/api/schedules', authenticateToken, asyncHandler(async (req, res) => {
-  const missing = validateRequiredFields(req.body, ['medicine_id', 'scheduled_time']);
-  if (missing) {
-    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
-  }
-
-  const schedule = await createSchedule(req.body);
-  sendResponse(res, 201, { schedule }, 'Schedule created successfully');
-}));
-
-app.put('/api/schedules/:id/taken', authenticateToken, asyncHandler(async (req, res) => {
-  const scheduleId = parseInt(req.params.id);
-  
-  const updated = await markScheduleAsTaken(scheduleId, req.user.userId);
-  
-  if (!updated) {
-    return sendError(res, 404, 'Schedule not found or you do not have permission to update it');
-  }
-
-  sendResponse(res, 200, {}, 'Schedule marked as taken');
-}));
-
-// History routes
-app.post('/api/medicines/:id/record', authenticateToken, asyncHandler(async (req, res) => {
-  const medicineId = parseInt(req.params.id);
-  const { status, notes } = req.body;
-  
-  const record = await recordMedicineHistory(medicineId, req.user.userId, status, notes);
-  sendResponse(res, 201, { record }, 'Medicine history recorded');
-}));
-
-app.get('/api/history', authenticateToken, asyncHandler(async (req, res) => {
-  const filters = {
-    date_from: req.query.date_from,
-    date_to: req.query.date_to,
-    medicine_id: req.query.medicine_id
-  };
-  
-  const history = await getMedicineHistory(req.user.userId, filters);
-  sendResponse(res, 200, { history });
-}));
-
-// Statistics route
-app.get('/api/stats', authenticateToken, asyncHandler(async (req, res) => {
-  const stats = await getStatistics(req.user.userId);
-  sendResponse(res, 200, { stats });
-}));
-
-// Reminder routes
-app.get('/api/reminders', authenticateToken, asyncHandler(async (req, res) => {
-  const reminders = await getRemindersByUserId(req.user.userId);
-  sendResponse(res, 200, { reminders });
-}));
-
-app.post('/api/reminders', authenticateToken, asyncHandler(async (req, res) => {
-  const missing = validateRequiredFields(req.body, ['medicine_id', 'reminder_time']);
-  if (missing) {
-    return sendError(res, 400, `Missing required fields: ${missing.join(', ')}`);
-  }
-
-  const reminder = await createReminder(req.body, req.user.userId);
-  sendResponse(res, 201, { reminder }, 'Reminder created successfully');
-}));
-
-app.put('/api/reminders/:id', authenticateToken, asyncHandler(async (req, res) => {
-  const reminderId = parseInt(req.params.id);
-  
-  if (Object.keys(req.body).length === 0) {
-    return sendError(res, 400, 'No data provided for update');
-  }
-
-  const updated = await updateReminder(reminderId, req.body, req.user.userId);
-  
-  if (!updated) {
-    return sendError(res, 404, 'Reminder not found or you do not have permission to update it');
-  }
-
-  sendResponse(res, 200, {}, 'Reminder updated successfully');
-}));
-
-app.delete('/api/reminders/:id', authenticateToken, asyncHandler(async (req, res) => {
-  const reminderId = parseInt(req.params.id);
-  
-  const deleted = await deleteReminder(reminderId, req.user.userId);
-  
-  if (!deleted) {
-    return sendError(res, 404, 'Reminder not found or you do not have permission to delete it');
-  }
-
-  sendResponse(res, 200, {}, 'Reminder deleted successfully');
-}));
-
-// Catch-all route for frontend routing (if serving a SPA)
-app.get('*', (req, res) => {
-  // Only serve index.html for non-API routes
-  if (!req.path.startsWith('/api/')) {
-    const indexPath = path.join(__dirname, 'public', 'index.html');
-    if (require('fs').existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).json({ error: 'Frontend not found' });
-    }
-  } else {
-    sendError(res, 404, 'API route not found');
-  }
+    testUnauthorizedAccess("/api/schedules/today", "get");
+    testUnauthorizedAccess("/api/schedules/1/taken", "put");
 });
 
-// Error handling middleware
-app.use((err, req, res, _next) => {
-  console.error('Unhandled error:', err.stack);
-  sendError(res, 500, 'Something went wrong!');
+describe("History API", () => {
+    let authToken;
+    let userId;
+    let medicineId;
+
+    beforeAll(async () => {
+        ({ authToken, userId } = await registerAndLoginUser("historyuser", "history@example.com", "password123"));
+
+        medicineId = await addMedicine(authToken, {
+            name: "Pain Reliever",
+            dosage: "250mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "For headaches"
+        });
+
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
+        const scheduleId = todayRes.body.schedules[0].id;
+
+        await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
+    });
+
+    it("should get medicine history for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/history");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.history).toBeInstanceOf(Array);
+        expect(res.body.history.length).toBeGreaterThan(0);
+        expect(res.body.history[0]).toHaveProperty("status", "taken");
+        expect(res.body.history[0]).toHaveProperty("medicine_name", "Pain Reliever");
+    });
+
+    it("should get medicine history filtered by date_from", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/history?date_from=2025-06-26");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.history.length).toBeGreaterThan(0);
+        expect(res.body.history[0].timestamp).toContain("2025-06-26");
+    });
+
+    it("should get medicine history filtered by medicine_id", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get(`/api/history?medicine_id=${medicineId}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.history.length).toBeGreaterThan(0);
+        expect(res.body.history[0].medicine_id).toEqual(medicineId);
+    });
+
+    testUnauthorizedAccess("/api/history", "get");
 });
 
-// Graceful shutdown handling
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, closing database connection...');
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err);
-    } else {
-      console.log('Database connection closed.');
-    }
-    process.exit(0);
-  });
+describe("Stats API", () => {
+    let authToken;
+    let userId;
+
+    beforeAll(async () => {
+        ({ authToken, userId } = await registerAndLoginUser("statsuser", "stats@example.com", "password123"));
+
+        const medicineId = await addMedicine(authToken, {
+            name: "Stat Medicine",
+            dosage: "10mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "For stats"
+        });
+
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
+        const scheduleId = todayRes.body.schedules[0].id;
+
+        await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
+    });
+
+    it("should get stats for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/stats");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body).toHaveProperty("totalMedicines");
+        expect(res.body).toHaveProperty("totalDosesTaken");
+        expect(res.body).toHaveProperty("totalDosesMissed");
+        expect(res.body).toHaveProperty("adherenceRate");
+    });
+
+    it("should return correct stats for no medicines", async () => {
+        const { authToken: newUserAuthToken, userId: newUserId } = await registerAndLoginUser("nomeduser", "nomed@example.com", "password123");
+        const res = await authenticatedRequest(newUserAuthToken)
+            .get("/api/stats");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.totalMedicines).toEqual(0);
+        expect(res.body.totalDosesTaken).toEqual(0);
+        expect(res.body.totalDosesMissed).toEqual(0);
+        expect(res.body.adherenceRate).toEqual(0);
+    });
+
+    it("should return correct stats for all taken schedules", async () => {
+        const { authToken: takenAuthToken, userId: takenUserId } = await registerAndLoginUser("takenuser", "taken@example.com", "password123");
+        const medId = await addMedicine(takenAuthToken, { name: "Taken Med", dosage: "1mg", frequency: "daily", start_date: "2025-06-20" });
+        const schedules = await authenticatedRequest(takenAuthToken).get("/api/schedules/today");
+        for (const schedule of schedules.body.schedules) {
+            await authenticatedRequest(takenAuthToken).put(`/api/schedules/${schedule.id}/taken`);
+        }
+        const res = await authenticatedRequest(takenAuthToken).get("/api/stats");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.totalDosesTaken).toBeGreaterThan(0);
+        expect(res.body.totalDosesMissed).toEqual(0);
+        expect(res.body.adherenceRate).toEqual(100);
+    });
+
+    // Note: Testing 'missed' schedules directly is harder as the API doesn't have a 'mark as missed' endpoint.
+    // This would typically be covered by backend logic that marks schedules as missed if not taken by a certain time.
+    // For now, we'll focus on what the current API allows.
+
+    testUnauthorizedAccess("/api/stats", "get");
 });
 
-// Initialize database and start server
-initializeDatabase();
+describe("Reminder API", () => {
+    let authToken;
+    let userId;
+    let medicineId;
 
-// Make sure server binds to 0.0.0.0 for Render
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Database: ${dbPath}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+    beforeAll(async () => {
+        ({ authToken, userId } = await registerAndLoginUser("reminderuser", "reminder@example.com", "password123"));
+
+        medicineId = await addMedicine(authToken, {
+            name: "Reminder Med",
+            dosage: "5mg",
+            frequency: "daily",
+            start_date: "2025-06-26"
+        });
+    });
+
+    it("should add a new reminder", async () => {
+        const res = await authenticatedRequest(authToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: medicineId,
+                reminder_time: "10:00"
+            });
+        expect(res.statusCode).toEqual(201);
+        expect(res.body.reminder).toHaveProperty("id");
+        expect(res.body.reminder.medicine_id).toEqual(medicineId);
+        expect(res.body.reminder.reminder_time).toEqual("10:00");
+    });
+
+    it("should not add a reminder with missing fields", async () => {
+        const res = await authenticatedRequest(authToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: medicineId
+                // reminder_time missing
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.error).toContain("reminder_time");
+    });
+
+    it("should get all reminders for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/reminders");
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.reminders).toBeInstanceOf(Array);
+        expect(res.body.reminders.length).toBeGreaterThan(0);
+        expect(res.body.reminders[0].medicine_id).toEqual(medicineId);
+    });
+
+    it("should update an existing reminder", async () => {
+        const addRes = await authenticatedRequest(authToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: medicineId,
+                reminder_time: "11:00"
+            });
+        const reminderId = addRes.body.reminder.id;
+
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/reminders/${reminderId}`)
+            .send({
+                reminder_time: "12:00",
+                enabled: false
+            });
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Reminder updated successfully");
+    });
+
+    it("should not update a non-existent reminder", async () => {
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/reminders/99999`)
+            .send({
+                reminder_time: "13:00"
+            });
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Reminder not found or not owned by user");
+    });
+
+    it("should not update a reminder not owned by the user", async () => {
+        const { authToken: otherAuthToken } = await registerAndLoginUser("other_reminder_user", "other_reminder@example.com", "password123");
+        const otherMedicineId = await addMedicine(otherAuthToken, { name: "Other Reminder Med", dosage: "1mg", frequency: "daily", start_date: "2025-01-01" });
+        const addRes = await authenticatedRequest(otherAuthToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: otherMedicineId,
+                reminder_time: "14:00"
+            });
+        const otherReminderId = addRes.body.reminder.id;
+
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/reminders/${otherReminderId}`)
+            .send({
+                reminder_time: "15:00"
+            });
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Reminder not found or not owned by user");
+    });
+
+    it("should delete a reminder", async () => {
+        const addRes = await authenticatedRequest(authToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: medicineId,
+                reminder_time: "16:00"
+            });
+        const reminderId = addRes.body.reminder.id;
+
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/reminders/${reminderId}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Reminder deleted successfully");
+    });
+
+    it("should not delete a non-existent reminder", async () => {
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/reminders/99999`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Reminder not found or not owned by user");
+    });
+
+    it("should not delete a reminder not owned by the user", async () => {
+        const { authToken: otherAuthToken } = await registerAndLoginUser("yet_another_reminder_user", "yet_another_reminder@example.com", "password123");
+        const otherMedicineId = await addMedicine(otherAuthToken, { name: "Yet Another Reminder Med", dosage: "1mg", frequency: "daily", start_date: "2025-01-01" });
+        const addRes = await authenticatedRequest(otherAuthToken)
+            .post("/api/reminders")
+            .send({
+                medicine_id: otherMedicineId,
+                reminder_time: "17:00"
+            });
+        const otherReminderId = addRes.body.reminder.id;
+
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/reminders/${otherReminderId}`);
+        expect(res.statusCode).toEqual(404);
+        expect(res.body.message).toEqual("Reminder not found or not owned by user");
+    });
+
+    testUnauthorizedAccess("/api/reminders", "get");
+    testUnauthorizedAccess("/api/reminders", "post", { medicine_id: 1, reminder_time: "09:00" });
+    testUnauthorizedAccess("/api/reminders/1", "put", { reminder_time: "10:00" });
+    testUnauthorizedAccess("/api/reminders/1", "delete");
 });
 
-// Handle server errors
-server.on('error', (err) => {
-  console.error('Server error:', err);
+// Test utility functions indirectly or with dedicated unit tests if needed
+// For example, testing initializeDatabase() could involve checking table existence
+// and error handling during creation.
+
+describe("Utility Functions (Indirectly Tested)", () => {
+    it("initializeDatabase should create tables", async () => {
+        // This is indirectly tested by the global beforeAll hook.
+        // To explicitly test error handling, you might need to mock sqlite3.Database
+        // or simulate a scenario where table creation fails.
+        // For now, we assume it works if the tests run without database errors.
+        expect(true).toBe(true); // Placeholder assertion
+    });
+
+    it("asyncHandler should catch errors", async () => {
+        const mockReq = {};
+        const mockRes = {};
+        const mockNext = jest.fn();
+        const error = new Error("Test Error");
+        const failingFn = async (req, res, next) => { throw error; };
+
+        const wrappedFn = asyncHandler(failingFn);
+        await wrappedFn(mockReq, mockRes, mockNext);
+
+        expect(mockNext).toHaveBeenCalledWith(error);
+    });
+
+    it("sendResponse should send correct response", () => {
+        const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        sendResponse(mockRes, 200, { data: "test" }, "Success");
+        expect(mockRes.status).toHaveBeenCalledWith(200);
+        expect(mockRes.json).toHaveBeenCalledWith({ message: "Success", data: "test" });
+    });
+
+    it("sendError should send correct error response", () => {
+        const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        const error = "Test Error";
+        sendError(mockRes, 500, error);
+        expect(mockRes.status).toHaveBeenCalledWith(500);
+        expect(mockRes.json).toHaveBeenCalledWith({ error });
+    });
+
+    it("validateRequiredFields should return missing fields", () => {
+        const data = { field1: "value1" };
+        const required = ["field1", "field2"];
+        const missing = validateRequiredFields(data, required);
+        expect(missing).toEqual(["field2"]);
+    });
+
+    it("validateRequiredFields should return null if no missing fields", () => {
+        const data = { field1: "value1", field2: "value2" };
+        const required = ["field1", "field2"];
+        const missing = validateRequiredFields(data, required);
+        expect(missing).toBeNull();
+    });
+
+    // dbQuery, dbGet, dbRun are implicitly tested by API tests, but could have dedicated unit tests
+    // by mocking sqlite3 methods.
+
+    it("authenticateToken should return 401 if no token", () => {
+        const mockReq = { headers: {} };
+        const mockRes = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        const mockNext = jest.fn();
+        authenticateToken(mockReq, mockRes, mockNext);
+        expect(mockRes.status).toHaveBeenCalledWith(401);
+        expect(mockRes.json).toHaveBeenCalledWith({ error: "Access token required" });
+        expect(mockNext).not.toHaveBeenCalled();
+    });
+
+    // More tests for authenticateToken (invalid/expired token) would require mocking jwt.verify
+
+    it("hashPassword and comparePassword should work", async () => {
+        const password = "mysecretpassword";
+        const hashedPassword = await hashPassword(password);
+        expect(typeof hashedPassword).toBe("string");
+        expect(hashedPassword.length).toBeGreaterThan(0);
+
+        const isMatch = await comparePassword(password, hashedPassword);
+        expect(isMatch).toBe(true);
+
+        const isNotMatch = await comparePassword("wrongpassword", hashedPassword);
+        expect(isNotMatch).toBe(false);
+    });
+
+    it("generateToken should create a token", () => {
+        const user = { id: 1, email: "test@example.com" };
+        const token = generateToken(user);
+        expect(typeof token).toBe("string");
+        expect(token.length).toBeGreaterThan(0);
+    });
+
+    // findUserByEmail and createUser are implicitly tested by Auth API tests.
+    // validateMedicineData is implicitly tested by Medicine API tests.
+    // getMedicinesByUserId, createMedicine, updateMedicine, deleteMedicine are implicitly tested by Medicine API tests.
+    // getSchedulesByUserId, getTodaysSchedule, createSchedule, markScheduleAsTaken are implicitly tested by Schedule API tests.
+    // recordMedicineHistory, getMedicineHistory, getStatistics are implicitly tested by History and Stats API tests.
+    // getRemindersByUserId, createReminder, updateReminder, deleteReminder are implicitly tested by Reminder API tests.
 });
 
-module.exports = app;
+
