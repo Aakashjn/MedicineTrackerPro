@@ -1,459 +1,448 @@
-// backend/__tests__/server.test.js
-const request = require('supertest');
-const app = require('../server');
-const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
+const request = require("supertest");
+const app = require("../server"); // Adjust path if necessary
+const sqlite3 = require("sqlite3").verbose();
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 
-// Test database
-const testDb = new sqlite3.Database(':memory:');
+const dbPath = "./test_database.sqlite";
+const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; // Use a consistent secret
 
-describe('Medicine Tracker API', () => {
-  let authToken;
-  let userId;
+let db;
 
-  beforeAll(async () => {
-    // Setup test database
-    await new Promise((resolve) => {
-      testDb.serialize(() => {
-        testDb.run(`CREATE TABLE users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          email TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
+beforeAll(async () => {
+    db = new sqlite3.Database(dbPath);
+    await new Promise((resolve, reject) => {
+        db.serialize(() => {
+            db.run(`DROP TABLE IF EXISTS users`);
+            db.run(`DROP TABLE IF EXISTS medicines`);
+            db.run(`DROP TABLE IF EXISTS schedules`);
+            db.run(`DROP TABLE IF EXISTS medicine_history`);
 
-        testDb.run(`CREATE TABLE medicines (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          dose TEXT NOT NULL,
-          time TEXT NOT NULL,
-          frequency TEXT DEFAULT 'daily',
-          notes TEXT,
-          active BOOLEAN DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users (id)
-        )`);
-
-        testDb.run(`CREATE TABLE medicine_history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          medicine_id INTEGER NOT NULL,
-          user_id INTEGER NOT NULL,
-          taken_at DATETIME NOT NULL,
-          status TEXT DEFAULT 'taken',
-          notes TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (medicine_id) REFERENCES medicines (id),
-          FOREIGN KEY (user_id) REFERENCES users (id)
-        )`, resolve);
-      });
-    });
-  });
-
-  afterAll(async () => {
-    testDb.close();
-  });
-
-  describe('Authentication', () => {
-    describe('POST /api/auth/register', () => {
-      test('should register a new user successfully', async () => {
-        const userData = {
-          username: 'testuser',
-          password: 'testpass123',
-          email: 'test@example.com'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(201);
-
-        expect(response.body).toHaveProperty('message', 'User created successfully');
-        expect(response.body).toHaveProperty('token');
-        expect(response.body.user).toHaveProperty('username', 'testuser');
-        
-        authToken = response.body.token;
-        userId = response.body.user.id;
-      });
-
-      test('should fail with missing username', async () => {
-        const userData = {
-          password: 'testpass123'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        expect(response.body).toHaveProperty('error', 'Username and password required');
-      });
-
-      test('should fail with missing password', async () => {
-        const userData = {
-          username: 'testuser2'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/register')
-          .send(userData)
-          .expect(400);
-
-        expect(response.body).toHaveProperty('error', 'Username and password required');
-      });
-    });
-
-    describe('POST /api/auth/login', () => {
-      test('should login successfully with correct credentials', async () => {
-        const loginData = {
-          username: 'testuser',
-          password: 'testpass123'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send(loginData)
-          .expect(200);
-
-        expect(response.body).toHaveProperty('message', 'Login successful');
-        expect(response.body).toHaveProperty('token');
-        expect(response.body.user).toHaveProperty('username', 'testuser');
-      });
-
-      test('should fail with incorrect password', async () => {
-        const loginData = {
-          username: 'testuser',
-          password: 'wrongpassword'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send(loginData)
-          .expect(401);
-
-        expect(response.body).toHaveProperty('error', 'Invalid credentials');
-      });
-
-      test('should fail with non-existent user', async () => {
-        const loginData = {
-          username: 'nonexistent',
-          password: 'testpass123'
-        };
-
-        const response = await request(app)
-          .post('/api/auth/login')
-          .send(loginData)
-          .expect(401);
-
-        expect(response.body).toHaveProperty('error', 'Invalid credentials');
-      });
-    });
-  });
-
-  describe('Medicine Management', () => {
-    let medicineId;
-
-    describe('POST /api/medicines', () => {
-      test('should create a new medicine', async () => {
-        const medicineData = {
-          name: 'Aspirin',
-          dose: '100mg',
-          time: '08:00',
-          frequency: 'daily',
-          notes: 'Take with food'
-        };
-
-        const response = await request(app)
-          .post('/api/medicines')
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(medicineData)
-          .expect(201);
-
-        expect(response.body).toHaveProperty('name', 'Aspirin');
-        expect(response.body).toHaveProperty('dose', '100mg');
-        expect(response.body).toHaveProperty('time', '08:00');
-        
-        medicineId = response.body.id;
-      });
-
-      test('should fail without authentication', async () => {
-        const medicineData = {
-          name: 'Aspirin',
-          dose: '100mg',
-          time: '08:00'
-        };
-
-        const response = await request(app)
-          .post('/api/medicines')
-          .send(medicineData)
-          .expect(401);
-
-        expect(response.body).toHaveProperty('error', 'Access token required');
-      });
-
-      test('should fail with missing required fields', async () => {
-        const medicineData = {
-          name: 'Aspirin'
-          // Missing dose and time
-        };
-
-        const response = await request(app)
-          .post('/api/medicines')
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(medicineData)
-          .expect(400);
-
-        expect(response.body).toHaveProperty('error', 'Name, dose, and time are required');
-      });
-    });
-
-    describe('GET /api/medicines', () => {
-      test('should get all medicines for authenticated user', async () => {
-        const response = await request(app)
-          .get('/api/medicines')
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(Array.isArray(response.body)).toBe(true);
-        expect(response.body.length).toBeGreaterThan(0);
-        expect(response.body[0]).toHaveProperty('name');
-        expect(response.body[0]).toHaveProperty('dose');
-      });
-
-      test('should fail without authentication', async () => {
-        const response = await request(app)
-          .get('/api/medicines')
-          .expect(401);
-
-        expect(response.body).toHaveProperty('error', 'Access token required');
-      });
-    });
-
-    describe('PUT /api/medicines/:id', () => {
-      test('should update medicine successfully', async () => {
-        const updateData = {
-          name: 'Updated Aspirin',
-          dose: '200mg',
-          time: '09:00',
-          frequency: 'twice daily',
-          notes: 'Updated notes'
-        };
-
-        const response = await request(app)
-          .put(`/api/medicines/${medicineId}`)
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(updateData)
-          .expect(200);
-
-        expect(response.body).toHaveProperty('message', 'Medicine updated successfully');
-      });
-
-      test('should fail for non-existent medicine', async () => {
-        const updateData = {
-          name: 'Non-existent',
-          dose: '100mg',
-          time: '08:00',
-          frequency: 'daily'
-        };
-
-        const response = await request(app)
-          .put('/api/medicines/9999')
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(updateData)
-          .expect(404);
-
-        expect(response.body).toHaveProperty('error', 'Medicine not found');
-      });
-    });
-
-    describe('DELETE /api/medicines/:id', () => {
-      test('should delete medicine successfully', async () => {
-        const response = await request(app)
-          .delete(`/api/medicines/${medicineId}`)
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(response.body).toHaveProperty('message', 'Medicine deleted successfully');
-      });
-
-      test('should fail for non-existent medicine', async () => {
-        const response = await request(app)
-          .delete('/api/medicines/9999')
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(404);
-
-        expect(response.body).toHaveProperty('error', 'Medicine not found');
-      });
-    });
-  });
-
-  describe('Medicine History', () => {
-    let newMedicineId;
-
-    beforeAll(async () => {
-      // Create a new medicine for history tests
-      const medicineData = {
-        name: 'Vitamin D',
-        dose: '1000 IU',
-        time: '10:00',
-        frequency: 'daily'
-      };
-
-      const response = await request(app)
-        .post('/api/medicines')
-        .set('Authorization', `Bearer ${authToken}`)
-        .send(medicineData);
-
-      newMedicineId = response.body.id;
-    });
-
-    describe('POST /api/medicines/:id/record', () => {
-      test('should record medicine intake', async () => {
-        const recordData = {
-          status: 'taken',
-          notes: 'Taken with breakfast'
-        };
-
-        const response = await request(app)
-          .post(`/api/medicines/${newMedicineId}/record`)
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(recordData)
-          .expect(201);
-
-        expect(response.body).toHaveProperty('status', 'taken');
-        expect(response.body).toHaveProperty('medicine_id', newMedicineId);
-      });
-
-      test('should record missed medicine', async () => {
-        const recordData = {
-          status: 'missed',
-          notes: 'Forgot to take'
-        };
-
-        const response = await request(app)
-          .post(`/api/medicines/${newMedicineId}/record`)
-          .set('Authorization', `Bearer ${authToken}`)
-          .send(recordData)
-          .expect(201);
-
-        expect(response.body).toHaveProperty('status', 'missed');
-      });
-    });
-
-    describe('GET /api/history', () => {
-      test('should get medicine history', async () => {
-        const response = await request(app)
-          .get('/api/history')
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(Array.isArray(response.body)).toBe(true);
-        expect(response.body.length).toBeGreaterThan(0);
-        expect(response.body[0]).toHaveProperty('medicine_name');
-        expect(response.body[0]).toHaveProperty('status');
-      });
-
-      test('should filter history by medicine_id', async () => {
-        const response = await request(app)
-          .get(`/api/history?medicine_id=${newMedicineId}`)
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(Array.isArray(response.body)).toBe(true);
-        response.body.forEach(record => {
-          expect(record.medicine_id).toBe(newMedicineId);
+            db.run(`
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            db.run(`
+                CREATE TABLE medicines (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    dosage TEXT NOT NULL,
+                    frequency TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT,
+                    notes TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            `);
+            db.run(`
+                CREATE TABLE schedules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL,
+                    scheduled_date TEXT NOT NULL,
+                    scheduled_time TEXT NOT NULL,
+                    taken BOOLEAN DEFAULT FALSE,
+                    taken_at DATETIME,
+                    FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+                )
+            `);
+            db.run(`
+                CREATE TABLE medicine_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL, -- 'taken' or 'missed'
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (medicine_id) REFERENCES medicines(id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+            `, (err) => {
+                if (err) reject(err); else resolve();
+            });
         });
-      });
     });
-  });
-
-  describe('Statistics', () => {
-    describe('GET /api/stats', () => {
-      test('should get user statistics', async () => {
-        const response = await request(app)
-          .get('/api/stats')
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(response.body).toHaveProperty('totalMedicines');
-        expect(response.body).toHaveProperty('totalDosesTaken');
-        expect(response.body).toHaveProperty('totalDosesMissed');
-        expect(response.body).toHaveProperty('adherenceRate');
-        
-        expect(typeof response.body.totalMedicines).toBe('number');
-        expect(typeof response.body.totalDosesTaken).toBe('number');
-        expect(typeof response.body.totalDosesMissed).toBe('number');
-        expect(typeof response.body.adherenceRate).toBe('number');
-      });
-    });
-  });
-
-  describe('Daily Schedule', () => {
-    describe('GET /api/schedule/today', () => {
-      test('should get today\'s medicine schedule', async () => {
-        const response = await request(app)
-          .get('/api/schedule/today')
-          .set('Authorization', `Bearer ${authToken}`)
-          .expect(200);
-
-        expect(Array.isArray(response.body)).toBe(true);
-        response.body.forEach(medicine => {
-          expect(medicine).toHaveProperty('name');
-          expect(medicine).toHaveProperty('time');
-          expect(medicine).toHaveProperty('taken_today');
-          expect(typeof medicine.taken_today).toBe('number');
-        });
-      });
-    });
-  });
-
-  describe('Error Handling', () => {
-    test('should return 404 for non-existent routes', async () => {
-      const response = await request(app)
-        .get('/api/nonexistent')
-        .expect(404);
-
-      expect(response.body).toHaveProperty('error', 'Route not found');
-    });
-
-    test('should handle invalid JWT tokens', async () => {
-      const response = await request(app)
-        .get('/api/medicines')
-        .set('Authorization', 'Bearer invalid-token')
-        .expect(403);
-
-      expect(response.body).toHaveProperty('error', 'Invalid token');
-    });
-  });
 });
 
-// Additional utility tests
-describe('Utility Functions', () => {
-  describe('Password Hashing', () => {
-    test('should hash passwords correctly', async () => {
-      const password = 'testpassword';
-      const hashedPassword = await bcrypt.hash(password, 10);
-      
-      expect(hashedPassword).not.toBe(password);
-      expect(hashedPassword.length).toBeGreaterThan(password.length);
-      
-      const isValid = await bcrypt.compare(password, hashedPassword);
-      expect(isValid).toBe(true);
+afterAll(async () => {
+    await new Promise((resolve, reject) => {
+        db.close((err) => {
+            if (err) reject(err); else resolve();
+        });
     });
-  });
+});
 
-  describe('JWT Token', () => {
-    test('should create and verify JWT tokens', () => {
-      const payload = { userId: 123 };
-      const secret = 'test-secret';
-      
-      const token = jwt.sign(payload, secret, { expiresIn: '1h' });
-      expect(typeof token).toBe('string');
-      
-      const decoded = jwt.verify(token, secret);
-      expect(decoded.userId).toBe(123);
+describe("Auth API", () => {
+    it("should register a new user", async () => {
+        const res = await request(app)
+            .post("/api/auth/register")
+            .send({
+                username: "testuser",
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(201);
+        expect(res.body.message).toEqual("User registered successfully");
+        expect(res.body.user).toHaveProperty("id");
+        expect(res.body.user.username).toEqual("testuser");
     });
-  });
+
+    it("should not register a user with existing email", async () => {
+        const res = await request(app)
+            .post("/api/auth/register")
+            .send({
+                username: "anotheruser",
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(400);
+        expect(res.body.message).toEqual("Email already registered");
+    });
+
+    it("should login an existing user", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "test@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(200);
+        expect(res.body).toHaveProperty("token");
+        expect(res.body.user).toHaveProperty("id");
+        expect(res.body.user.email).toEqual("test@example.com");
+    });
+
+    it("should not login with incorrect password", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "test@example.com",
+                password: "wrongpassword"
+            });
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Invalid credentials");
+    });
+
+    it("should not login with non-existent email", async () => {
+        const res = await request(app)
+            .post("/api/auth/login")
+            .send({
+                email: "nonexistent@example.com",
+                password: "password123"
+            });
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Invalid credentials");
+    });
+});
+
+describe("Medicine API", () => {
+    let authToken;
+    let userId;
+
+    beforeAll(async () => {
+        // Register and login a user to get a token
+        await request(app).post("/api/auth/register").send({
+            username: "meduser",
+            email: "med@example.com",
+            password: "password123"
+        });
+        const loginRes = await request(app).post("/api/auth/login").send({
+            email: "med@example.com",
+            password: "password123"
+        });
+        authToken = loginRes.body.token;
+        userId = loginRes.body.user.id;
+    });
+
+    it("should add a new medicine", async () => {
+        const res = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Aspirin",
+                dosage: "100mg",
+                frequency: "daily",
+                start_date: "2025-01-01",
+                notes: "Take with food"
+            });
+        expect(res.statusCode).toEqual(201);
+        expect(res.body).toHaveProperty("id");
+        expect(res.body.name).toEqual("Aspirin");
+        expect(res.body.user_id).toEqual(userId);
+    });
+
+    it("should get all medicines for a user", async () => {
+        const res = await request(app)
+            .get("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.medicines).toBeInstanceOf(Array);
+        expect(res.body.medicines.length).toBeGreaterThan(0);
+        expect(res.body.medicines[0].name).toEqual("Aspirin");
+    });
+
+    it("should update an existing medicine", async () => {
+        const addRes = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Ibuprofen",
+                dosage: "200mg",
+                frequency: "twice-daily",
+                start_date: "2025-01-05",
+                notes: "For pain"
+            });
+        const medicineId = addRes.body.id;
+
+        const res = await request(app)
+            .put(`/api/medicines/${medicineId}`)
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Ibuprofen",
+                dosage: "400mg",
+                frequency: "twice-daily",
+                start_date: "2025-01-05",
+                notes: "For severe pain"
+            });
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Medicine updated successfully");
+        expect(res.body.medicine.dosage).toEqual("400mg");
+    });
+
+    it("should delete a medicine", async () => {
+        const addRes = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Paracetamol",
+                dosage: "500mg",
+                frequency: "daily",
+                start_date: "2025-01-10"
+            });
+        const medicineId = addRes.body.id;
+
+        const res = await request(app)
+            .delete(`/api/medicines/${medicineId}`)
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Medicine deleted successfully");
+
+        const getRes = await request(app)
+            .get("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(getRes.body.medicines.some(m => m.id === medicineId)).toBeFalsy();
+    });
+
+    it("should not allow unauthorized access to medicines", async () => {
+        const res = await request(app).get("/api/medicines");
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
+    });
+});
+
+describe("Schedule API", () => {
+    let authToken;
+    let userId;
+    let medicineId;
+
+    beforeAll(async () => {
+        // Register and login a user
+        await request(app).post("/api/auth/register").send({
+            username: "scheduleuser",
+            email: "schedule@example.com",
+            password: "password123"
+        });
+        const loginRes = await request(app).post("/api/auth/login").send({
+            email: "schedule@example.com",
+            password: "password123"
+        });
+        authToken = loginRes.body.token;
+        userId = loginRes.body.user.id;
+
+        // Add a medicine to create schedules
+        const medRes = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Vitamin C",
+                dosage: "1000mg",
+                frequency: "daily",
+                start_date: "2025-06-26",
+                notes: "Daily dose"
+            });
+        medicineId = medRes.body.id;
+    });
+
+    it("should get today's schedules for a user", async () => {
+        const res = await request(app)
+            .get("/api/schedules/today")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.schedules).toBeInstanceOf(Array);
+        expect(res.body.schedules.length).toBeGreaterThan(0);
+        expect(res.body.schedules[0]).toHaveProperty("medicine_id", medicineId);
+        expect(res.body.schedules[0]).toHaveProperty("scheduled_date", new Date().toISOString().split("T")[0]);
+    });
+
+    it("should mark a schedule as taken", async () => {
+        const todayRes = await request(app)
+            .get("/api/schedules/today")
+            .set("Authorization", `Bearer ${authToken}`);
+        const scheduleId = todayRes.body.schedules[0].id;
+
+        const res = await request(app)
+            .put(`/api/schedules/${scheduleId}/taken`)
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.message).toEqual("Schedule marked as taken");
+
+        // Verify it's marked as taken
+        const updatedSchedule = await new Promise((resolve, reject) => {
+            db.get(`SELECT taken FROM schedules WHERE id = ?`, [scheduleId], (err, row) => {
+                if (err) reject(err); else resolve(row);
+            });
+        });
+        expect(updatedSchedule.taken).toBe(1); // SQLite stores BOOLEAN as 0 or 1
+    });
+
+    it("should get all schedules for a user", async () => {
+        const res = await request(app)
+            .get("/api/schedules")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.schedules).toBeInstanceOf(Array);
+        expect(res.body.schedules.length).toBeGreaterThan(0);
+    });
+
+    it("should not allow unauthorized access to schedules", async () => {
+        const res = await request(app).get("/api/schedules/today");
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
+    });
+});
+
+describe("History API", () => {
+    let authToken;
+    let userId;
+    let medicineId;
+
+    beforeAll(async () => {
+        // Register and login a user
+        await request(app).post("/api/auth/register").send({
+            username: "historyuser",
+            email: "history@example.com",
+            password: "password123"
+        });
+        const loginRes = await request(app).post("/api/auth/login").send({
+            email: "history@example.com",
+            password: "password123"
+        });
+        authToken = loginRes.body.token;
+        userId = loginRes.body.user.id;
+
+        // Add a medicine and mark a schedule as taken to create history
+        const medRes = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Pain Reliever",
+                dosage: "250mg",
+                frequency: "daily",
+                start_date: "2025-06-26",
+                notes: "For headaches"
+            });
+        medicineId = medRes.body.id;
+
+        const todayRes = await request(app)
+            .get("/api/schedules/today")
+            .set("Authorization", `Bearer ${authToken}`);
+        const scheduleId = todayRes.body.schedules[0].id;
+
+        await request(app)
+            .put(`/api/schedules/${scheduleId}/taken`)
+            .set("Authorization", `Bearer ${authToken}`);
+    });
+
+    it("should get medicine history for a user", async () => {
+        const res = await request(app)
+            .get("/api/history")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.history).toBeInstanceOf(Array);
+        expect(res.body.history.length).toBeGreaterThan(0);
+        expect(res.body.history[0]).toHaveProperty("action", "taken");
+        expect(res.body.history[0]).toHaveProperty("medicine_name", "Pain Reliever");
+    });
+
+    it("should not allow unauthorized access to history", async () => {
+        const res = await request(app).get("/api/history");
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
+    });
+});
+
+describe("Stats API", () => {
+    let authToken;
+    let userId;
+
+    beforeAll(async () => {
+        // Register and login a user
+        await request(app).post("/api/auth/register").send({
+            username: "statsuser",
+            email: "stats@example.com",
+            password: "password123"
+        });
+        const loginRes = await request(app).post("/api/auth/login").send({
+            email: "stats@example.com",
+            password: "password123"
+        });
+        authToken = loginRes.body.token;
+        userId = loginRes.body.user.id;
+
+        // Add a medicine and mark a schedule as taken to generate stats
+        const medRes = await request(app)
+            .post("/api/medicines")
+            .set("Authorization", `Bearer ${authToken}`)
+            .send({
+                name: "Stat Medicine",
+                dosage: "10mg",
+                frequency: "daily",
+                start_date: "2025-06-26",
+                notes: "For stats"
+            });
+        const medicineId = medRes.body.id;
+
+        const todayRes = await request(app)
+            .get("/api/schedules/today")
+            .set("Authorization", `Bearer ${authToken}`);
+        const scheduleId = todayRes.body.schedules[0].id;
+
+        await request(app)
+            .put(`/api/schedules/${scheduleId}/taken`)
+            .set("Authorization", `Bearer ${authToken}`);
+    });
+
+    it("should get user statistics", async () => {
+        const res = await request(app)
+            .get("/api/stats")
+            .set("Authorization", `Bearer ${authToken}`);
+        expect(res.statusCode).toEqual(200);
+        expect(res.body).toHaveProperty("totalMedicines");
+        expect(res.body).toHaveProperty("dosesTaken");
+        expect(res.body).toHaveProperty("adherenceRate");
+        expect(res.body.totalMedicines).toBeGreaterThan(0);
+        expect(res.body.dosesTaken).toBeGreaterThan(0);
+        expect(res.body.adherenceRate).toBeGreaterThanOrEqual(0);
+    });
+
+    it("should not allow unauthorized access to stats", async () => {
+        const res = await request(app).get("/api/stats");
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
+    });
 });
