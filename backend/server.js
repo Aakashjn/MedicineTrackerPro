@@ -268,64 +268,96 @@ const getMedicinesByUserId = async (userId) => {
 };
 
 // In server.js, find the createMedicine function
+// In server.js, locate createMedicine function
 const createMedicine = async (medicineData, userId) => {
   const { name, dosage, frequency, start_date, end_date, notes } = medicineData;
 
-  const result = await dbRun(
-    `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`, 
-    [userId, name, dosage, frequency, start_date, end_date, notes]
-  );
+  try {
+    const result = await dbRun(
+      `INSERT INTO medicines (user_id, name, dosage, frequency, start_date, end_date, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`, 
+      [userId, name, dosage, frequency, start_date, end_date, notes]
+    );
 
-  const newMedicineId = result.id;
+    const newMedicineId = result.id;
 
-  // --- NEW LOGIC STARTS HERE: Generate initial schedules based on frequency ---
-  const schedulesToCreate = [];
-  const today = new Date().toISOString().split("T")[0]; // Get today's date in YYYY-MM-DD format
+    // --- NEW LOGIC STARTS HERE: Generate initial schedules based on frequency ---
+    const schedulesToCreate = [];
+    const today = new Date().toISOString().split("T")[0]; // Get today's date in YYYY-MM-DD format
 
-  switch (frequency) {
-    case "daily":
-      // For daily, create one schedule for today at 9 AM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "09:00", scheduled_date: today });
-      break;
-    case "twice-daily":
-      // For twice-daily, create two schedules for today at 9 AM and 6 PM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "09:00", scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "18:00", scheduled_date: today });
-      break;
-    case "three-times-daily":
-      // For three-times-daily, create three schedules for today at 8 AM, 2 PM, and 8 PM
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "08:00", scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "14:00", scheduled_date: today });
-      schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "20:00", scheduled_date: today });
-      break;
-    case "weekly":
-      // For weekly, create one schedule for today if the medicine's start date is today or in the past
-      // (Note: For full weekly recurrence, you'd need more advanced scheduling logic)
-      if (new Date(start_date) <= new Date(today)) {
+    switch (frequency) {
+      case "daily":
         schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "09:00", scheduled_date: today });
+        break;
+      case "twice-daily":
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "09:00", scheduled_date: today });
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "18:00", scheduled_date: today });
+        break;
+      case "three-times-daily":
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "08:00", scheduled_date: today });
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "14:00", scheduled_date: today });
+        schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "20:00", scheduled_date: today });
+        break;
+      case "weekly":
+        if (new Date(start_date) <= new Date(today)) {
+          schedulesToCreate.push({ medicine_id: newMedicineId, scheduled_time: "09:00", scheduled_date: today });
+        }
+        break;
+      case "as-needed":
+        break;
+      default:
+        console.warn(`Unknown frequency: ${frequency} for medicine ${newMedicineId}. No schedules generated.`);
+    }
+
+    // Insert all generated schedules into the database
+    for (const scheduleData of schedulesToCreate) {
+      try {
+        await createSchedule(scheduleData); // Reuse your existing createSchedule function
+      } catch (scheduleErr) {
+        console.error(`Error creating schedule for medicine ${newMedicineId}:`, scheduleErr);
+        // Decide if you want to re-throw or just log and continue
+        // For now, let's just log and continue to see other errors
       }
-      break;
-    case "as-needed":
-      // No automatic schedule generation for 'as-needed' medicines
-      break;
-    default:
-      console.warn(`Unknown frequency: ${frequency} for medicine ${newMedicineId}. No schedules generated.`);
-  }
+    }
+    // --- NEW LOGIC ENDS HERE ---
 
-  // Insert all generated schedules into the database
-  for (const scheduleData of schedulesToCreate) {
-    await createSchedule(scheduleData); // Reuse your existing createSchedule function
+    return {
+      id: newMedicineId,
+      user_id: userId,
+      ...medicineData,
+      created_at: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error in createMedicine:", error);
+    throw error; // Re-throw to be caught by asyncHandler
   }
-  // --- NEW LOGIC ENDS HERE ---
-
-  return {
-    id: newMedicineId,
-    user_id: userId,
-    ...medicineData,
-    created_at: new Date().toISOString()
-  };
 };
+
+// In server.js, locate createSchedule function
+const createSchedule = async (scheduleData) => {
+  const { medicine_id, scheduled_time, scheduled_date } = scheduleData;
+  const date = scheduled_date || new Date().toISOString().split("T")[0];
+  
+  try {
+    const result = await dbRun(
+      "INSERT INTO schedules (medicine_id, scheduled_time, scheduled_date) VALUES (?, ?, ?)",
+      [medicine_id, scheduled_time, date]
+    );
+    
+    return {
+      id: result.id,
+      medicine_id,
+      scheduled_time,
+      scheduled_date: date,
+      taken: false,
+      created_at: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error in createSchedule:", error);
+    throw error; // Re-throw to be caught by createMedicine or route handler
+  }
+};
+
 
 const updateMedicine = async (medicineId, updateData, userId) => {
   const fields = [];
