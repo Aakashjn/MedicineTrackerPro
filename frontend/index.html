@@ -326,12 +326,12 @@
           </div>
         </div>
         
-        <div class="form-group" id="emailGroup">
+        <div class="form-group" id="emailGroup" style="display:none;">
           <div class="input-group">
             <div class="input-group-prepend">
               <span class="input-group-text"><i class="fas fa-envelope"></i></span>
             </div>
-            <input type="email" id="email" class="form-control" placeholder="Email" required />
+            <input type="email" id="email" class="form-control" placeholder="Email" />
           </div>
         </div>
 
@@ -674,7 +674,9 @@
 
 <script>
 // API Configuration
-const API_BASE = 'https://4000-isg472ulqdhrosfaw3jub-d82e02bc.manus.computer/api';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? 'http://localhost:4000/api' 
+  : 'https://medicinetrackerpro-production.up.railway.app/api';
 
 let authToken = localStorage.getItem('authToken');
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -722,7 +724,7 @@ function showLoading(elementId, show = true) {
 
 // API Call Function
 async function apiCall(endpoint, options = {}) {
-  const url = endpoint.startsWith('/') ? `${API_BASE}${endpoint}` : `${API_BASE}/${endpoint}`;
+  const url = endpoint.startsWith('/') ? ${API_BASE}${endpoint} : ${API_BASE}/${endpoint};
 
   const headers = {
     'Content-Type': 'application/json',
@@ -730,7 +732,7 @@ async function apiCall(endpoint, options = {}) {
   };
 
   if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+    headers['Authorization'] = Bearer ${authToken};
   }
 
   try {
@@ -748,7 +750,7 @@ async function apiCall(endpoint, options = {}) {
     }
 
     if (!response.ok) {
-      const errorMessage = data.error || data.message || `API Error: ${response.statusText}`;
+      const errorMessage = data.error || data.message || API Error: ${response.statusText};
       throw new Error(errorMessage);
     }
 
@@ -792,14 +794,27 @@ function showHistoryPage() {
 async function login() {
   const username = document.getElementById('username').value.trim();
   const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').valu  if (!email || !password) {
-    showAlert(\'loginAlert\', \'Please enter email and password.\', \'warning\');
+  const password = document.getElementById('password').value.trim();
+
+  if (!username && !email) {
+    showAlert('loginAlert', 'Please enter username or email.', 'warning');
     return;
   }
+
+  if (!password) {
+    showAlert('loginAlert', 'Please enter password.', 'warning');
+    return;
+  }
+
   showLoading('loginLoading', true);
 
   try {
-    const loginData = { email, password };
+    const loginData = { password };
+    if (email) {
+      loginData.email = email;
+    } else {
+      loginData.username = username;
+    }
 
     const response = await apiCall('/auth/login', {
       method: 'POST',
@@ -925,8 +940,8 @@ async function loadMedicines() {
               <p class="mb-1"><strong>Dosage:</strong> ${medicine.dosage}</p>
               <p class="mb-1"><strong>Frequency:</strong> ${medicine.frequency}</p>
               <p class="mb-1"><strong>Start Date:</strong> ${new Date(medicine.start_date).toLocaleDateString()}</p>
-              ${medicine.end_date ? `<p class="mb-1"><strong>End Date:</strong> ${new Date(medicine.end_date).toLocaleDateString()}</p>` : ''}
-              ${medicine.notes ? `<p class="mb-1"><strong>Notes:</strong> ${medicine.notes}</p>` : ''}
+              ${medicine.end_date ? <p class="mb-1"><strong>End Date:</strong> ${new Date(medicine.end_date).toLocaleDateString()}</p> : ''}
+              ${medicine.notes ? <p class="mb-1"><strong>Notes:</strong> ${medicine.notes}</p> : ''}
             </div>
             <div class="col-md-4 text-right">
               <button onclick="deleteMedicine(${medicine.id})" class="btn btn-danger btn-sm btn-enhanced">
@@ -950,7 +965,7 @@ async function deleteMedicine(medicineId) {
   }
 
   try {
-    await apiCall(`/medicines/${medicineId}`, {
+    await apiCall(/medicines/${medicineId}, {
       method: 'DELETE'
     });
 
@@ -998,23 +1013,21 @@ async function loadTodaySchedule() {
 
 async function markAsTaken(scheduleId) {
   try {
-    await apiCall(`/schedules/${scheduleId}/taken`, {
+    await apiCall(/schedules/${scheduleId}/taken, {
       method: 'PUT'
     });
-    showAlert(\'addMedicineAlert\', \'Medicine marked as taken!\', \'success\');
-    // Record medicine history after marking as taken
-    const schedule = await apiCall(`/schedules/${scheduleId}`);
-    if (schedule && schedule.medicine_id) {
-      await apiCall(`/medicines/${schedule.medicine_id}/record`, {
-        method: \'POST\',
-        body: JSON.stringify({ status: \'taken\' })
-      });
-    }
+
+    showAlert('addMedicineAlert', 'Medicine marked as taken!', 'success');
     loadTodaySchedule();
     loadStats();
     loadUserStats();
     loadAdherenceChart();
-  } catch (error) {tions
+  } catch (error) {
+    showAlert('addMedicineAlert', error.message, 'danger');
+  }
+}
+
+// History Functions
 async function loadHistory() {
   showLoading('historyLoading', true);
   
@@ -1049,7 +1062,7 @@ async function loadHistory() {
               <p class="mb-1"><strong>Dosage:</strong> ${record.dosage}</p>
               <p class="mb-1"><strong>Date:</strong> ${new Date(record.taken_at).toLocaleString()}</p>
               <p class="mb-1"><strong>Status:</strong> <span class="status-${record.status}">${record.status}</span></p>
-              ${record.notes ? `<p class="mb-1"><strong>Notes:</strong> ${record.notes}</p>` : ''}
+              ${record.notes ? <p class="mb-1"><strong>Notes:</strong> ${record.notes}</p> : ''}
             </div>
           </div>
         </div>
@@ -1069,7 +1082,7 @@ async function loadMedicineFilter() {
     
     const filterSelect = document.getElementById('medicineFilter');
     filterSelect.innerHTML = '<option value="">All Medicines</option>' +
-      medicines.map(medicine => `<option value="${medicine.id}">${medicine.name}</option>`).join('');
+      medicines.map(medicine => <option value="${medicine.id}">${medicine.name}</option>).join('');
   } catch (error) {
     console.error('Error loading medicine filter:', error);
   }
@@ -1180,4 +1193,3 @@ if (authToken && currentUser.id) {
 
 </body>
 </html>
-
