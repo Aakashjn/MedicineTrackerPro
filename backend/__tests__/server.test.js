@@ -1,9 +1,10 @@
 const request = require("supertest");
-const app = require("../server"); 
+const app = require("../server"); // Adjust path if necessary
 const sqlite3 = require("sqlite3").verbose();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
+// Suppress console.error output during tests
 const originalConsoleError = console.error;
 beforeAll(() => {
   console.error = jest.fn();
@@ -13,7 +14,7 @@ afterAll(() => {
 });
 
 const dbPath = "./test_database.sqlite";
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; 
+const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; // Use a consistent secret
 
 let db;
 
@@ -65,7 +66,7 @@ beforeAll(async () => {
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     medicine_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
-                    action TEXT NOT NULL, -- 'taken' or 'missed'
+                    action TEXT NOT NULL, -- \'taken\' or \'missed\'
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (medicine_id) REFERENCES medicines(id),
                     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -109,7 +110,8 @@ describe("Auth API", () => {
                 password: "password123"
             });
         expect(res.statusCode).toEqual(400);
-        expect(res.body.message).toEqual("Email already registered");
+        // Updated expectation for error message
+        expect(res.body.message).toEqual("User with this email already exists");
     });
 
     it("should login an existing user", async () => {
@@ -179,9 +181,10 @@ describe("Medicine API", () => {
                 notes: "Take with food"
             });
         expect(res.statusCode).toEqual(201);
-        expect(res.body).toHaveProperty("id");
-        expect(res.body.name).toEqual("Aspirin");
-        expect(res.body.user_id).toEqual(userId);
+        // Updated to expect nested medicine object
+        expect(res.body.medicine).toHaveProperty("id");
+        expect(res.body.medicine.name).toEqual("Aspirin");
+        expect(res.body.medicine.user_id).toEqual(userId);
     });
 
     it("should get all medicines for a user", async () => {
@@ -205,7 +208,8 @@ describe("Medicine API", () => {
                 start_date: "2025-01-05",
                 notes: "For pain"
             });
-        const medicineId = addRes.body.id;
+        // Updated to extract id from nested medicine object
+        const medicineId = addRes.body.medicine.id;
 
         const res = await request(app)
             .put(`/api/medicines/${medicineId}`)
@@ -232,7 +236,8 @@ describe("Medicine API", () => {
                 frequency: "daily",
                 start_date: "2025-01-10"
             });
-        const medicineId = addRes.body.id;
+        // Updated to extract id from nested medicine object
+        const medicineId = addRes.body.medicine.id;
 
         const res = await request(app)
             .delete(`/api/medicines/${medicineId}`)
@@ -283,16 +288,17 @@ describe("Schedule API", () => {
                 start_date: "2025-06-26",
                 notes: "Daily dose"
             });
-        medicineId = medRes.body.id;
+        medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
     });
 
-    it("should get today's schedules for a user", async () => {
+    it("should get today\'s schedules for a user", async () => {
         const res = await request(app)
             .get("/api/schedules/today")
             .set("Authorization", `Bearer ${authToken}`);
         expect(res.statusCode).toEqual(200);
         expect(res.body.schedules).toBeInstanceOf(Array);
         expect(res.body.schedules.length).toBeGreaterThan(0);
+        // Corrected expectation for medicine_id
         expect(res.body.schedules[0]).toHaveProperty("medicine_id", medicineId);
         expect(res.body.schedules[0]).toHaveProperty("scheduled_date", new Date().toISOString().split("T")[0]);
     });
@@ -309,7 +315,7 @@ describe("Schedule API", () => {
         expect(res.statusCode).toEqual(200);
         expect(res.body.message).toEqual("Schedule marked as taken");
 
-        // Verify it's marked as taken
+        // Verify it\'s marked as taken
         const updatedSchedule = await new Promise((resolve, reject) => {
             db.get(`SELECT taken FROM schedules WHERE id = ?`, [scheduleId], (err, row) => {
                 if (err) reject(err); else resolve(row);
@@ -364,7 +370,7 @@ describe("History API", () => {
                 start_date: "2025-06-26",
                 notes: "For headaches"
             });
-        medicineId = medRes.body.id;
+        medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
 
         const todayRes = await request(app)
             .get("/api/schedules/today")
@@ -423,7 +429,7 @@ describe("Stats API", () => {
                 start_date: "2025-06-26",
                 notes: "For stats"
             });
-        const medicineId = medRes.body.id;
+        const medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
 
         const todayRes = await request(app)
             .get("/api/schedules/today")
