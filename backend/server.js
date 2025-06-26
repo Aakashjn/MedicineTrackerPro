@@ -148,7 +148,10 @@ const sendResponse = (res, status, data, message = null) => {
 
 const sendError = (res, status, error) => {
   console.error('API Error:', error);
-  res.status(status).json({ error });
+  // Change this line:
+  // res.status(status).json({ error });
+  // To this:
+  res.status(status).json({ message: error });
 };
 
 const validateRequiredFields = (data, requiredFields) => {
