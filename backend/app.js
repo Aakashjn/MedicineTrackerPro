@@ -1,70 +1,65 @@
-// app.js
 const express = require('express');
+const helmet = require('helmet');
 const bodyParser = require('body-parser');
-const {
-  validateMedicineFields,
-  findMedicineById,
-  sanitizeString
-} = require('./medicineService');
+const { medicines } = require('./data');
+const { validateMedicineFields, findMedicineById } = require('./medicineService');
 
 const app = express();
+app.use(helmet());
 app.use(bodyParser.json());
 
-// List all medicines
-app.get('/medicines', (req, res, next) => {
-  try {
-    res.json(require('./data').medicines);
-  } catch (err) { next(err); }
+// Get all medicines
+app.get('/medicines', (req, res) => {
+  res.json(medicines);
 });
 
-// Create a new medicine
+// Add a new medicine
 app.post('/medicines', (req, res, next) => {
   try {
-    const body = req.body;
-    validateMedicineFields(body);
-
-    const newMed = {
-      id: String(Date.now()), // Unique ID
-      name: sanitizeString(body.name),
-      expiryDate: new Date(body.expiryDate).toISOString()
+    validateMedicineFields(req.body);
+    const newMedicine = {
+      id: Date.now().toString(),
+      name: req.body.name.trim(),
+      expiryDate: req.body.expiryDate,
     };
-
-    require('./data').medicines.push(newMed);
-    res.status(201).json(newMed);
-  } catch (err) { next(err); }
+    medicines.push(newMedicine);
+    res.status(201).json(newMedicine);
+  } catch (err) {
+    next(err);
+  }
 });
 
-// Update existing medicine
+// Update an existing medicine
 app.put('/medicines/:id', (req, res, next) => {
   try {
-    const id = sanitizeString(req.params.id);
     validateMedicineFields(req.body);
-    const existingMed = findMedicineById(id);
+    const medicine = findMedicineById(req.params.id);
+    if (!medicine) return res.status(404).json({ error: 'Medicine not found' });
 
-    existingMed.name = sanitizeString(req.body.name);
-    existingMed.expiryDate = new Date(req.body.expiryDate).toISOString();
-
-    res.json(existingMed);
-  } catch (err) { next(err); }
+    medicine.name = req.body.name.trim();
+    medicine.expiryDate = req.body.expiryDate;
+    res.json(medicine);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // Delete a medicine
-app.delete('/medicines/:id', (req, res, next) => {
-  try {
-    const id = sanitizeString(req.params.id);
-    findMedicineById(id); // Throws 404 if not found
-    const index = require('./data').medicines.findIndex(m => m.id === id);
-    require('./data').medicines.splice(index, 1);
-    res.sendStatus(204);
-  } catch (err) { next(err); }
+app.delete('/medicines/:id', (req, res) => {
+  const index = medicines.findIndex(med => med.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: 'Medicine not found' });
+
+  medicines.splice(index, 1);
+  res.status(204).send();
 });
 
-// Global error handler for reliability
+// Health check route
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+// Error handler
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(err.status || 500).json({
-    error: err.message || 'An unexpected error occurred'
-  });
+  res.status(err.status || 500).json({ error: err.message });
 });
 
 module.exports = app;
