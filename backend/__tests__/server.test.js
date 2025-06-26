@@ -1,11 +1,19 @@
 const request = require("supertest");
-const app = require("../server"); // Adjust path if necessary
+const app = require("../server"); 
 const sqlite3 = require("sqlite3").verbose();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
+const originalConsoleError = console.error;
+beforeAll(() => {
+  console.error = jest.fn();
+});
+afterAll(() => {
+  console.error = originalConsoleError;
+});
+
 const dbPath = "./test_database.sqlite";
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; // Use a consistent secret
+const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; 
 
 let db;
 
