@@ -359,32 +359,16 @@ const createSchedule = async (scheduleData) => {
 };
 
 const markScheduleAsTaken = async (scheduleId, userId) => {
-  // First, get the medicine_id associated with the schedule
-  const schedule = await dbGet(`
-    SELECT medicine_id FROM schedules
-    WHERE id = ? AND medicine_id IN (SELECT id FROM medicines WHERE user_id = ?)
+  const result = await dbRun(`
+    UPDATE schedules 
+    SET taken = TRUE, taken_at = CURRENT_TIMESTAMP 
+    WHERE id = ? AND medicine_id IN (
+      SELECT id FROM medicines WHERE user_id = ?
+    )
   `, [scheduleId, userId]);
-
-  if (!schedule) {
-    console.warn(`Schedule ${scheduleId} not found or not owned by user ${userId}`);
-    return false; // Schedule not found or not authorized
-  }
-
-  // Update the schedule as taken
-  const updateResult = await dbRun(`
-    UPDATE schedules
-    SET taken = TRUE, taken_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `, [scheduleId]);
-
-  if (updateResult.changes > 0) {
-    // If schedule was successfully updated, record it in history
-    await recordMedicineHistory(schedule.medicine_id, userId, 'taken');
-    return true;
-  }
-  return false;
+  
+  return result.changes > 0;
 };
-
 
 // History and Statistics utilities
 const recordMedicineHistory = async (medicineId, userId, status = 'taken', notes = null) => {
