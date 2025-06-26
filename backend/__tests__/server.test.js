@@ -7,10 +7,10 @@ const bcrypt = require("bcrypt");
 // Suppress console.error output during tests
 const originalConsoleError = console.error;
 beforeAll(() => {
-  console.error = jest.fn();
+    console.error = jest.fn();
 });
 afterAll(() => {
-  console.error = originalConsoleError;
+    console.error = originalConsoleError;
 });
 
 const dbPath = "./test_database.sqlite";
@@ -18,15 +18,18 @@ const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret"; // Use a consist
 
 let db;
 
-beforeAll(async () => {
-    db = new sqlite3.Database(dbPath);
-    await new Promise((resolve, reject) => {
+// Helper function to initialize the test database schema
+async function initializeTestDatabase() {
+    return new Promise((resolve, reject) => {
+        db = new sqlite3.Database(dbPath);
         db.serialize(() => {
+            // Drop tables if they exist
             db.run(`DROP TABLE IF EXISTS users`);
             db.run(`DROP TABLE IF EXISTS medicines`);
             db.run(`DROP TABLE IF EXISTS schedules`);
             db.run(`DROP TABLE IF EXISTS medicine_history`);
 
+            // Create tables
             db.run(`
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +69,7 @@ beforeAll(async () => {
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     medicine_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
-                    action TEXT NOT NULL, -- \'taken\' or \'missed\'
+                    action TEXT NOT NULL, -- 'taken' or 'missed'
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (medicine_id) REFERENCES medicines(id),
                     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -76,8 +79,14 @@ beforeAll(async () => {
             });
         });
     });
+}
+
+// Global beforeAll hook to set up the database once for all tests
+beforeAll(async () => {
+    await initializeTestDatabase();
 });
 
+// Global afterAll hook to close the database connection
 afterAll(async () => {
     await new Promise((resolve, reject) => {
         db.close((err) => {
@@ -85,6 +94,40 @@ afterAll(async () => {
         });
     });
 });
+
+/**
+ * Helper function to register and log in a user.
+ * @param {string} username
+ * @param {string} email
+ * @param {string} password
+ * @returns {Promise<{authToken: string, userId: number}>}
+ */
+async function registerAndLoginUser(username, email, password) {
+    await request(app)
+        .post("/api/auth/register")
+        .send({ username, email, password });
+
+    const loginRes = await request(app)
+        .post("/api/auth/login")
+        .send({ email, password });
+
+    return { authToken: loginRes.body.token, userId: loginRes.body.user.id };
+}
+
+/**
+ * Helper function to add a medicine for a given user.
+ * @param {string} authToken
+ * @param {object} medicineDetails
+ * @returns {Promise<number>} - The ID of the created medicine.
+ */
+async function addMedicine(authToken, medicineDetails) {
+    const medRes = await request(app)
+        .post("/api/medicines")
+        .set("Authorization", `Bearer ${authToken}`)
+        .send(medicineDetails);
+    return medRes.body.medicine.id;
+}
+
 
 describe("Auth API", () => {
     it("should register a new user", async () => {
@@ -110,7 +153,6 @@ describe("Auth API", () => {
                 password: "password123"
             });
         expect(res.statusCode).toEqual(400);
-        // Updated expectation for error message
         expect(res.body.message).toEqual("User with this email already exists");
     });
 
@@ -155,18 +197,7 @@ describe("Medicine API", () => {
     let userId;
 
     beforeAll(async () => {
-        // Register and login a user to get a token
-        await request(app).post("/api/auth/register").send({
-            username: "meduser",
-            email: "med@example.com",
-            password: "password123"
-        });
-        const loginRes = await request(app).post("/api/auth/login").send({
-            email: "med@example.com",
-            password: "password123"
-        });
-        authToken = loginRes.body.token;
-        userId = loginRes.body.user.id;
+        ({ authToken, userId } = await registerAndLoginUser("meduser", "med@example.com", "password123"));
     });
 
     it("should add a new medicine", async () => {
@@ -181,7 +212,6 @@ describe("Medicine API", () => {
                 notes: "Take with food"
             });
         expect(res.statusCode).toEqual(201);
-        // Updated to expect nested medicine object
         expect(res.body.medicine).toHaveProperty("id");
         expect(res.body.medicine.name).toEqual("Aspirin");
         expect(res.body.medicine.user_id).toEqual(userId);
@@ -198,18 +228,13 @@ describe("Medicine API", () => {
     });
 
     it("should update an existing medicine", async () => {
-        const addRes = await request(app)
-            .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
-            .send({
-                name: "Ibuprofen",
-                dosage: "200mg",
-                frequency: "twice-daily",
-                start_date: "2025-01-05",
-                notes: "For pain"
-            });
-        // Updated to extract id from nested medicine object
-        const medicineId = addRes.body.medicine.id;
+        const medicineId = await addMedicine(authToken, {
+            name: "Ibuprofen",
+            dosage: "200mg",
+            frequency: "twice-daily",
+            start_date: "2025-01-05",
+            notes: "For pain"
+        });
 
         const res = await request(app)
             .put(`/api/medicines/${medicineId}`)
@@ -223,22 +248,15 @@ describe("Medicine API", () => {
             });
         expect(res.statusCode).toEqual(200);
         expect(res.body.message).toEqual("Medicine updated successfully");
-        // Removed the problematic expectation for dosage directly on res.body
-        // expect(res.body.dosage).toEqual("400mg"); // This line was removed
     });
 
     it("should delete a medicine", async () => {
-        const addRes = await request(app)
-            .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
-            .send({
-                name: "Paracetamol",
-                dosage: "500mg",
-                frequency: "daily",
-                start_date: "2025-01-10"
-            });
-        // Updated to extract id from nested medicine object
-        const medicineId = addRes.body.medicine.id;
+        const medicineId = await addMedicine(authToken, {
+            name: "Paracetamol",
+            dosage: "500mg",
+            frequency: "daily",
+            start_date: "2025-01-10"
+        });
 
         const res = await request(app)
             .delete(`/api/medicines/${medicineId}`)
@@ -265,31 +283,15 @@ describe("Schedule API", () => {
     let medicineId;
 
     beforeAll(async () => {
-        // Register and login a user
-        await request(app).post("/api/auth/register").send({
-            username: "scheduleuser",
-            email: "schedule@example.com",
-            password: "password123"
-        });
-        const loginRes = await request(app).post("/api/auth/login").send({
-            email: "schedule@example.com",
-            password: "password123"
-        });
-        authToken = loginRes.body.token;
-        userId = loginRes.body.user.id;
+        ({ authToken, userId } = await registerAndLoginUser("scheduleuser", "schedule@example.com", "password123"));
 
-        // Add a medicine to create schedules
-        const medRes = await request(app)
-            .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
-            .send({
-                name: "Vitamin C",
-                dosage: "1000mg",
-                frequency: "daily",
-                start_date: "2025-06-26",
-                notes: "Daily dose"
-            });
-        medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
+        medicineId = await addMedicine(authToken, {
+            name: "Vitamin C",
+            dosage: "1000mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "Daily dose"
+        });
 
         // Ensure schedules are generated for the medicine
         const generatedSchedulesRes = await request(app)
@@ -299,14 +301,13 @@ describe("Schedule API", () => {
         expect(generatedSchedulesRes.body.schedules.length).toBeGreaterThan(0);
     });
 
-    it("should get today\"s schedules for a user", async () => {
+    it("should get today's schedules for a user", async () => {
         const res = await request(app)
             .get("/api/schedules/today")
             .set("Authorization", `Bearer ${authToken}`);
         expect(res.statusCode).toEqual(200);
         expect(res.body.schedules).toBeInstanceOf(Array);
         expect(res.body.schedules.length).toBeGreaterThan(0);
-        // Corrected expectation for medicine_id
         expect(res.body.schedules[0]).toHaveProperty("medicine_id", medicineId);
         expect(res.body.schedules[0]).toHaveProperty("scheduled_date", new Date().toISOString().split("T")[0]);
     });
@@ -315,7 +316,7 @@ describe("Schedule API", () => {
         const todayRes = await request(app)
             .get("/api/schedules/today")
             .set("Authorization", `Bearer ${authToken}`);
-        expect(todayRes.body.schedules.length).toBeGreaterThan(0); // Ensure there\'s at least one schedule
+        expect(todayRes.body.schedules.length).toBeGreaterThan(0); // Ensure there's at least one schedule
         const scheduleId = todayRes.body.schedules[0].id;
 
         const res = await request(app)
@@ -324,15 +325,12 @@ describe("Schedule API", () => {
         expect(res.statusCode).toEqual(200);
         expect(res.body.message).toEqual("Schedule marked as taken");
 
-        // Verify it\"s marked as taken
+        // Verify it's marked as taken
         const updatedSchedule = await new Promise((resolve, reject) => {
             db.get(`SELECT taken FROM schedules WHERE id = ?`, [scheduleId], (err, row) => {
                 if (err) reject(err); else resolve(row);
             });
         });
-        // This test expects `updatedSchedule` to be an object with a `taken` property.
-        // If `db.get` returns `undefined` (no row found), `updatedSchedule.taken` will throw an error.
-        // The test passes if `updatedSchedule` is an object and `taken` is 1.
         expect(updatedSchedule).toHaveProperty("taken", 1); // SQLite stores BOOLEAN as 0 or 1
     });
 
@@ -358,31 +356,15 @@ describe("History API", () => {
     let medicineId;
 
     beforeAll(async () => {
-        // Register and login a user
-        await request(app).post("/api/auth/register").send({
-            username: "historyuser",
-            email: "history@example.com",
-            password: "password123"
-        });
-        const loginRes = await request(app).post("/api/auth/login").send({
-            email: "history@example.com",
-            password: "password123"
-        });
-        authToken = loginRes.body.token;
-        userId = loginRes.body.user.id;
+        ({ authToken, userId } = await registerAndLoginUser("historyuser", "history@example.com", "password123"));
 
-        // Add a medicine and mark a schedule as taken to create history
-        const medRes = await request(app)
-            .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
-            .send({
-                name: "Pain Reliever",
-                dosage: "250mg",
-                frequency: "daily",
-                start_date: "2025-06-26",
-                notes: "For headaches"
-            });
-        medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
+        medicineId = await addMedicine(authToken, {
+            name: "Pain Reliever",
+            dosage: "250mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "For headaches"
+        });
 
         const todayRes = await request(app)
             .get("/api/schedules/today")
@@ -401,7 +383,6 @@ describe("History API", () => {
         expect(res.statusCode).toEqual(200);
         expect(res.body.history).toBeInstanceOf(Array);
         expect(res.body.history.length).toBeGreaterThan(0);
-        // Updated to expect \'status\' property instead of \'action\'
         expect(res.body.history[0]).toHaveProperty("status", "taken");
         expect(res.body.history[0]).toHaveProperty("medicine_name", "Pain Reliever");
     });
@@ -418,31 +399,15 @@ describe("Stats API", () => {
     let userId;
 
     beforeAll(async () => {
-        // Register and login a user
-        await request(app).post("/api/auth/register").send({
-            username: "statsuser",
-            email: "stats@example.com",
-            password: "password123"
-        });
-        const loginRes = await request(app).post("/api/auth/login").send({
-            email: "stats@example.com",
-            password: "password123"
-        });
-        authToken = loginRes.body.token;
-        userId = loginRes.body.user.id;
+        ({ authToken, userId } = await registerAndLoginUser("statsuser", "stats@example.com", "password123"));
 
-        // Add a medicine and mark a schedule as taken to generate stats
-        const medRes = await request(app)
-            .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
-            .send({
-                name: "Stat Medicine",
-                dosage: "10mg",
-                frequency: "daily",
-                start_date: "2025-06-26",
-                notes: "For stats"
-            });
-        const medicineId = medRes.body.medicine.id; // Updated to extract id from nested medicine object
+        const medicineId = await addMedicine(authToken, {
+            name: "Stat Medicine",
+            dosage: "10mg",
+            frequency: "daily",
+            start_date: "2025-06-26",
+            notes: "For stats"
+        });
 
         const todayRes = await request(app)
             .get("/api/schedules/today")
@@ -459,12 +424,11 @@ describe("Stats API", () => {
             .get("/api/stats")
             .set("Authorization", `Bearer ${authToken}`);
         expect(res.statusCode).toEqual(200);
-        // Updated to expect nested stats object
         expect(res.body.stats).toHaveProperty("totalMedicines");
-        expect(res.body.stats).toHaveProperty("totalDosesTaken"); // Changed from dosesTaken
+        expect(res.body.stats).toHaveProperty("totalDosesTaken");
         expect(res.body.stats).toHaveProperty("adherenceRate");
         expect(res.body.stats.totalMedicines).toBeGreaterThan(0);
-        expect(res.body.stats.totalDosesTaken).toBeGreaterThan(0); // Changed from dosesTaken
+        expect(res.body.stats.totalDosesTaken).toBeGreaterThan(0);
         expect(res.body.stats.adherenceRate).toBeGreaterThanOrEqual(0);
     });
 
