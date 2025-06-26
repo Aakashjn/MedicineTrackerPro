@@ -23,14 +23,15 @@ async function initializeTestDatabase() {
     return new Promise((resolve, reject) => {
         db = new sqlite3.Database(dbPath);
         db.serialize(() => {
-            // Drop tables if they exist
-            db.run(`DROP TABLE IF EXISTS users`);
-            db.run(`DROP TABLE IF EXISTS medicines`);
-            db.run(`DROP TABLE IF EXISTS schedules`);
-            db.run(`DROP TABLE IF EXISTS medicine_history`);
+            const dropTableStatements = [
+                `DROP TABLE IF EXISTS users`,
+                `DROP TABLE IF EXISTS medicines`,
+                `DROP TABLE IF EXISTS schedules`,
+                `DROP TABLE IF EXISTS medicine_history`
+            ];
 
-            // Create tables
-            db.run(`
+            const createTableStatements = [
+                `
                 CREATE TABLE users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE NOT NULL,
@@ -38,8 +39,8 @@ async function initializeTestDatabase() {
                     password TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
-            `);
-            db.run(`
+                `,
+                `
                 CREATE TABLE medicines (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
@@ -52,8 +53,8 @@ async function initializeTestDatabase() {
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
-            `);
-            db.run(`
+                `,
+                `
                 CREATE TABLE schedules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     medicine_id INTEGER NOT NULL,
@@ -63,8 +64,8 @@ async function initializeTestDatabase() {
                     taken_at DATETIME,
                     FOREIGN KEY (medicine_id) REFERENCES medicines(id)
                 )
-            `);
-            db.run(`
+                `,
+                `
                 CREATE TABLE medicine_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     medicine_id INTEGER NOT NULL,
@@ -74,9 +75,32 @@ async function initializeTestDatabase() {
                     FOREIGN KEY (medicine_id) REFERENCES medicines(id),
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
-            `, (err) => {
-                if (err) reject(err); else resolve();
+                `
+            ];
+
+            // Execute drop statements
+            dropTableStatements.forEach(stmt => db.run(stmt));
+
+            // Execute create statements
+            let completed = 0;
+            const totalStatements = createTableStatements.length;
+
+            createTableStatements.forEach((stmt, index) => {
+                db.run(stmt, (err) => {
+                    if (err) {
+                        return reject(err);
+                    }
+                    completed++;
+                    if (completed === totalStatements) {
+                        resolve();
+                    }
+                });
             });
+
+            // Handle case where there are no create statements (shouldn't happen here, but good practice)
+            if (totalStatements === 0) {
+                resolve();
+            }
         });
     });
 }
