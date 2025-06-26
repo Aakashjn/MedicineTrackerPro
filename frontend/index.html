@@ -326,12 +326,12 @@
           </div>
         </div>
         
-        <div class="form-group" id="emailGroup" style="display:none;">
+        <div class="form-group" id="emailGroup">
           <div class="input-group">
             <div class="input-group-prepend">
               <span class="input-group-text"><i class="fas fa-envelope"></i></span>
             </div>
-            <input type="email" id="email" class="form-control" placeholder="Email" />
+            <input type="email" id="email" class="form-control" placeholder="Email" required />
           </div>
         </div>
 
@@ -674,9 +674,7 @@
 
 <script>
 // API Configuration
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-  ? 'http://localhost:4000/api' 
-  : 'https://medicinetrackerpro-production.up.railway.app/api';
+const API_BASE = 'https://4000-isg472ulqdhrosfaw3jub-d82e02bc.manus.computer/api';
 
 let authToken = localStorage.getItem('authToken');
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
@@ -794,27 +792,14 @@ function showHistoryPage() {
 async function login() {
   const username = document.getElementById('username').value.trim();
   const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value.trim();
-
-  if (!username && !email) {
-    showAlert('loginAlert', 'Please enter username or email.', 'warning');
+  const password = document.getElementById('password').valu  if (!email || !password) {
+    showAlert(\'loginAlert\', \'Please enter email and password.\', \'warning\');
     return;
   }
-
-  if (!password) {
-    showAlert('loginAlert', 'Please enter password.', 'warning');
-    return;
-  }
-
   showLoading('loginLoading', true);
 
   try {
-    const loginData = { password };
-    if (email) {
-      loginData.email = email;
-    } else {
-      loginData.username = username;
-    }
+    const loginData = { email, password };
 
     const response = await apiCall('/auth/login', {
       method: 'POST',
@@ -1016,18 +1001,20 @@ async function markAsTaken(scheduleId) {
     await apiCall(`/schedules/${scheduleId}/taken`, {
       method: 'PUT'
     });
-
-    showAlert('addMedicineAlert', 'Medicine marked as taken!', 'success');
+    showAlert(\'addMedicineAlert\', \'Medicine marked as taken!\', \'success\');
+    // Record medicine history after marking as taken
+    const schedule = await apiCall(`/schedules/${scheduleId}`);
+    if (schedule && schedule.medicine_id) {
+      await apiCall(`/medicines/${schedule.medicine_id}/record`, {
+        method: \'POST\',
+        body: JSON.stringify({ status: \'taken\' })
+      });
+    }
     loadTodaySchedule();
     loadStats();
     loadUserStats();
     loadAdherenceChart();
-  } catch (error) {
-    showAlert('addMedicineAlert', error.message, 'danger');
-  }
-}
-
-// History Functions
+  } catch (error) {tions
 async function loadHistory() {
   showLoading('historyLoading', true);
   
