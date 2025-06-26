@@ -1,30 +1,23 @@
-// medicineService.js
-const { medicines } = require('./data'); // In-memory or DB stub
+function validateMedicineFields(data) {
+  if (!data.name || typeof data.name !== 'string' || data.name.trim() === '') {
+    const err = new Error('Invalid name');
+    err.status = 400;
+    throw err;
+  }
 
-function validateMedicineFields({ name, expiryDate }) {
-  if (!name || !expiryDate) {
-    const err = new Error('Missing name or expiryDate');
+  if (!data.expiryDate || isNaN(Date.parse(data.expiryDate))) {
+    const err = new Error('Invalid expiry date');
     err.status = 400;
     throw err;
   }
 }
 
 function findMedicineById(id) {
-  const med = medicines.find(m => m.id === id);
-  if (!med) {
-    const err = new Error('Medicine not found');
-    err.status = 404;
-    throw err;
-  }
-  return med;
-}
-
-function sanitizeString(str) {
-  return String(str).trim(); // Basic example of input sanitation
+  const { medicines } = require('./data');
+  return medicines.find(med => med.id === id);
 }
 
 module.exports = {
   validateMedicineFields,
-  findMedicineById,
-  sanitizeString,
+  findMedicineById
 };
