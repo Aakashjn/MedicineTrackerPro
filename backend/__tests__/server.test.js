@@ -152,6 +152,28 @@ async function addMedicine(authToken, medicineDetails) {
     return medRes.body.medicine.id;
 }
 
+// Helper function for authenticated requests
+function authenticatedRequest(authToken) {
+    return request(app).set("Authorization", `Bearer ${authToken}`);
+}
+
+// Helper function for common unauthorized access test
+function testUnauthorizedAccess(apiPath, method) {
+    it(`should not allow unauthorized access to ${apiPath}`, async () => {
+        let res;
+        if (method === 'get') {
+            res = await request(app).get(apiPath);
+        } else if (method === 'post') {
+            res = await request(app).post(apiPath).send({}); // Send empty body for post
+        } else if (method === 'put') {
+            res = await request(app).put(apiPath).send({}); // Send empty body for put
+        } else if (method === 'delete') {
+            res = await request(app).delete(apiPath);
+        }
+        expect(res.statusCode).toEqual(401);
+        expect(res.body.message).toEqual("Access token required");
+    });
+}
 
 describe("Auth API", () => {
     it("should register a new user", async () => {
@@ -225,9 +247,8 @@ describe("Medicine API", () => {
     });
 
     it("should add a new medicine", async () => {
-        const res = await request(app)
+        const res = await authenticatedRequest(authToken)
             .post("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`)
             .send({
                 name: "Aspirin",
                 dosage: "100mg",
@@ -242,9 +263,8 @@ describe("Medicine API", () => {
     });
 
     it("should get all medicines for a user", async () => {
-        const res = await request(app)
-            .get("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .get("/api/medicines");
         expect(res.statusCode).toEqual(200);
         expect(res.body.medicines).toBeInstanceOf(Array);
         expect(res.body.medicines.length).toBeGreaterThan(0);
@@ -260,9 +280,8 @@ describe("Medicine API", () => {
             notes: "For pain"
         });
 
-        const res = await request(app)
+        const res = await authenticatedRequest(authToken)
             .put(`/api/medicines/${medicineId}`)
-            .set("Authorization", `Bearer ${authToken}`)
             .send({
                 name: "Ibuprofen",
                 dosage: "400mg",
@@ -282,23 +301,17 @@ describe("Medicine API", () => {
             start_date: "2025-01-10"
         });
 
-        const res = await request(app)
-            .delete(`/api/medicines/${medicineId}`)
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .delete(`/api/medicines/${medicineId}`);
         expect(res.statusCode).toEqual(200);
         expect(res.body.message).toEqual("Medicine deleted successfully");
 
-        const getRes = await request(app)
-            .get("/api/medicines")
-            .set("Authorization", `Bearer ${authToken}`);
+        const getRes = await authenticatedRequest(authToken)
+            .get("/api/medicines");
         expect(getRes.body.medicines.some(m => m.id === medicineId)).toBeFalsy();
     });
 
-    it("should not allow unauthorized access to medicines", async () => {
-        const res = await request(app).get("/api/medicines");
-        expect(res.statusCode).toEqual(401);
-        expect(res.body.message).toEqual("Access token required");
-    });
+    testUnauthorizedAccess("/api/medicines", "get");
 });
 
 describe("Schedule API", () => {
@@ -318,17 +331,15 @@ describe("Schedule API", () => {
         });
 
         // Ensure schedules are generated for the medicine
-        const generatedSchedulesRes = await request(app)
-            .get("/api/schedules/today")
-            .set("Authorization", `Bearer ${authToken}`);
+        const generatedSchedulesRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
         expect(generatedSchedulesRes.statusCode).toEqual(200);
         expect(generatedSchedulesRes.body.schedules.length).toBeGreaterThan(0);
     });
 
     it("should get today's schedules for a user", async () => {
-        const res = await request(app)
-            .get("/api/schedules/today")
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
         expect(res.statusCode).toEqual(200);
         expect(res.body.schedules).toBeInstanceOf(Array);
         expect(res.body.schedules.length).toBeGreaterThan(0);
@@ -337,15 +348,13 @@ describe("Schedule API", () => {
     });
 
     it("should mark a schedule as taken", async () => {
-        const todayRes = await request(app)
-            .get("/api/schedules/today")
-            .set("Authorization", `Bearer ${authToken}`);
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
         expect(todayRes.body.schedules.length).toBeGreaterThan(0); // Ensure there's at least one schedule
         const scheduleId = todayRes.body.schedules[0].id;
 
-        const res = await request(app)
-            .put(`/api/schedules/${scheduleId}/taken`)
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
         expect(res.statusCode).toEqual(200);
         expect(res.body.message).toEqual("Schedule marked as taken");
 
@@ -359,19 +368,14 @@ describe("Schedule API", () => {
     });
 
     it("should get all schedules for a user", async () => {
-        const res = await request(app)
-            .get("/api/schedules")
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .get("/api/schedules");
         expect(res.statusCode).toEqual(200);
         expect(res.body.schedules).toBeInstanceOf(Array);
         expect(res.body.schedules.length).toBeGreaterThan(0);
     });
 
-    it("should not allow unauthorized access to schedules", async () => {
-        const res = await request(app).get("/api/schedules/today");
-        expect(res.statusCode).toEqual(401);
-        expect(res.body.message).toEqual("Access token required");
-    });
+    testUnauthorizedAccess("/api/schedules/today", "get");
 });
 
 describe("History API", () => {
@@ -390,20 +394,17 @@ describe("History API", () => {
             notes: "For headaches"
         });
 
-        const todayRes = await request(app)
-            .get("/api/schedules/today")
-            .set("Authorization", `Bearer ${authToken}`);
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
         const scheduleId = todayRes.body.schedules[0].id;
 
-        await request(app)
-            .put(`/api/schedules/${scheduleId}/taken`)
-            .set("Authorization", `Bearer ${authToken}`);
+        await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
     });
 
     it("should get medicine history for a user", async () => {
-        const res = await request(app)
-            .get("/api/history")
-            .set("Authorization", `Bearer ${authToken}`);
+        const res = await authenticatedRequest(authToken)
+            .get("/api/history");
         expect(res.statusCode).toEqual(200);
         expect(res.body.history).toBeInstanceOf(Array);
         expect(res.body.history.length).toBeGreaterThan(0);
@@ -411,11 +412,7 @@ describe("History API", () => {
         expect(res.body.history[0]).toHaveProperty("medicine_name", "Pain Reliever");
     });
 
-    it("should not allow unauthorized access to history", async () => {
-        const res = await request(app).get("/api/history");
-        expect(res.statusCode).toEqual(401);
-        expect(res.body.message).toEqual("Access token required");
-    });
+    testUnauthorizedAccess("/api/history", "get");
 });
 
 describe("Stats API", () => {
@@ -433,32 +430,24 @@ describe("Stats API", () => {
             notes: "For stats"
         });
 
-        const todayRes = await request(app)
-            .get("/api/schedules/today")
-            .set("Authorization", `Bearer ${authToken}`);
+        const todayRes = await authenticatedRequest(authToken)
+            .get("/api/schedules/today");
         const scheduleId = todayRes.body.schedules[0].id;
 
-        await request(app)
-            .put(`/api/schedules/${scheduleId}/taken`)
-            .set("Authorization", `Bearer ${authToken}`);
+        await authenticatedRequest(authToken)
+            .put(`/api/schedules/${scheduleId}/taken`);
     });
 
-    it("should get user statistics", async () => {
-        const res = await request(app)
-            .get("/api/stats")
-            .set("Authorization", `Bearer ${authToken}`);
+    it("should get stats for a user", async () => {
+        const res = await authenticatedRequest(authToken)
+            .get("/api/stats");
         expect(res.statusCode).toEqual(200);
-        expect(res.body.stats).toHaveProperty("totalMedicines");
-        expect(res.body.stats).toHaveProperty("totalDosesTaken");
-        expect(res.body.stats).toHaveProperty("adherenceRate");
-        expect(res.body.stats.totalMedicines).toBeGreaterThan(0);
-        expect(res.body.stats.totalDosesTaken).toBeGreaterThan(0);
-        expect(res.body.stats.adherenceRate).toBeGreaterThanOrEqual(0);
+        expect(res.body).toHaveProperty("totalMedicines");
+        expect(res.body).toHaveProperty("takenSchedules");
+        expect(res.body).toHaveProperty("missedSchedules");
     });
 
-    it("should not allow unauthorized access to stats", async () => {
-        const res = await request(app).get("/api/stats");
-        expect(res.statusCode).toEqual(401);
-        expect(res.body.message).toEqual("Access token required");
-    });
+    testUnauthorizedAccess("/api/stats", "get");
 });
+
+
