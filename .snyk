@@ -1,4 +1,0 @@
-# Snyk configuration file
-version: v1.0.0
-ignore: {}
-patch: {}
