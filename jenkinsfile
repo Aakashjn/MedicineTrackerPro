@@ -1,0 +1,229 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk21'
+    }
+    environment {
+        SCANNER_HOME = tool 'Sonar-scanner'
+        DOCKER_IMAGE = 'aakashjn/medicinetrackerpro'
+    }
+    stages {
+        stage('Git checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Aakashjn/MedicineTrackerPro.git'
+            }
+        }
+
+        stage('Run Tests and Generate Coverage') {
+            steps {
+                dir('backend') {
+                    script {
+                        try {
+                            bat 'npm install'
+                            bat 'npm test'
+                        } catch (err) {
+                            echo "⚠ Test stage failed: ${err.getMessage()}"
+                            currentBuild.result = 'FAILURE'
+                        }
+                    }
+                }
+            }
+        }
+
+      stage('Sonarqube Analysis') {
+    steps {
+        withSonarQubeEnv('SonarQube') {
+            withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                bat """
+                    cd backend
+                    ${tool('Sonar-scanner')}/bin/sonar-scanner ^
+                    -Dsonar.projectKey=medicinetrackerpro ^
+                    -Dsonar.projectName="Medicine Tracker Pro" ^
+                    -Dsonar.token=%SONAR_TOKEN% ^
+                    -Dsonar.sources=. ^
+                    -Dsonar.test.inclusions=**/__tests__/**/*.js ^
+                    -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+                """
+            }
+        }
+    }
+}
+
+
+        stage('Gitleaks Secrets Scan') {
+            steps {
+                bat 'gitleaks detect --source=. --report-format=json --report-path=gitleaks-report.json || exit /b 0'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'gitleaks-report.json', fingerprint: true
+                }
+            }
+        }
+
+        stage('Shell Script Linting') {
+            steps {
+                bat 'for /r %%f in (*.sh) do shellcheck "%%f" || exit /b 0'
+            }
+        }
+
+       
+        stage('Docker Build') {
+            steps {
+                script {
+                    bat "docker build -t ${DOCKER_IMAGE}:latest ."
+                    bat "docker tag ${DOCKER_IMAGE}:latest ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    bat "docker images ${DOCKER_IMAGE}"
+                }
+            }
+        }
+
+        stage('Syft SBOM') {
+            steps {
+                bat "syft ${DOCKER_IMAGE}:latest -o json > sbom.json || exit /b 0"
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'sbom.json', fingerprint: true
+                }
+            }
+        }
+
+        stage('Trivy Docker Scan') {
+            steps {
+                bat "E:\\trivy\\trivy.exe image ${DOCKER_IMAGE}:latest"
+            }
+        }
+
+        stage('Grype Vulnerability Scan') {
+            steps {
+                script {
+                    try {
+                        bat """
+                            echo "Running Grype vulnerability scan..."
+                            grype ${DOCKER_IMAGE}:latest --output json --file grype-report.json
+                            grype ${DOCKER_IMAGE}:latest --output table
+                        """
+                    } catch (Exception e) {
+                        echo "Grype scan completed with findings: ${e.getMessage()}"
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'grype-report.json', fingerprint: true
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'Docker', url: 'https://index.docker.io/v1/') {
+                        bat "docker push ${DOCKER_IMAGE}:latest"
+                        bat "docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    }
+                }
+            }
+        }
+
+        stage('Dependency Check') {
+            steps {
+                dependencyCheck additionalArguments: '''
+                    --format HTML 
+                    --format XML 
+                    --suppression suppression.xml
+                    --enableRetired
+                ''', odcInstallation: 'dependency-check'
+                dependencyCheckPublisher pattern: 'dependency-check-report.xml'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'dependency-check-report.*', fingerprint: true
+                }
+            }
+        }
+
+        stage('Docker Deploy') {
+            steps {
+                script {
+                    bat "docker rm -f medicinetrackerpro || echo \"No existing container to remove\""
+                    bat "docker run -d --name medicinetrackerpro -p 4000:4000 ${DOCKER_IMAGE}:latest"
+                }
+            }
+        }
+
+        stage('Deploy to Railway') {
+            steps {
+                script {
+                    echo "Current branch: ${env.BRANCH_NAME}"
+                    echo "Git branch: ${env.GIT_BRANCH}"
+
+                    def isMainBranch = (env.BRANCH_NAME == 'main' ||
+                                        env.GIT_BRANCH == 'main' ||
+                                        env.GIT_BRANCH == 'origin/main')
+
+                    if (isMainBranch) {
+                        withCredentials([string(credentialsId: 'railway-token', variable: 'RAILWAY_TOKEN')]) {
+                            bat """
+                                echo "✅ Deploying to Railway from main branch..."
+                                railway login --token %RAILWAY_TOKEN%
+                                railway up --detach --service medicinetrackerpro --project %RAILWAY_PROJECT_ID%
+                            """
+                        }
+                    } else {
+                        echo "⏭ Skipping Railway deployment - not on main branch"
+                        echo "Current branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH}"
+                    }
+                }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                script {
+                    def isMainBranch = (env.BRANCH_NAME == 'main' ||
+                                        env.GIT_BRANCH == 'main' ||
+                                        env.GIT_BRANCH == 'origin/main')
+
+                    if (isMainBranch) {
+                        echo "Waiting for Railway deployment to complete..."
+                        sleep(60)
+
+                        try {
+                            def response = bat(
+                                script: 'curl -s -o nul -w "%%{http_code}" https://medicinetrackerpro-production.up.railway.app/health',
+                                returnStdout: true
+                            ).trim()
+
+                            if (response != '200') {
+                                echo "⚠ Health check failed. HTTP status: ${response}"
+                                error "Health check failed for Railway deployment."
+                            } else {
+                                echo "✅ Application deployed successfully and health check passed!"
+                            }
+                        } catch (Exception e) {
+                            echo "⚠ Health check failed: ${e.getMessage()}"
+                            error "Health check failed for Railway deployment."
+                        }
+                    } else {
+                        echo "⏭ Skipping health check - not on main branch"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "🎉 Pipeline completed successfully!"
+            echo "🌐 Application URL: https://medicinetrackerpro-production.up.railway.app"
+        }
+        failure {
+            echo "❌ Pipeline failed. Check logs for details."
+        }
+    }
+}
